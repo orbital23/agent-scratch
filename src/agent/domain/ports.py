@@ -2,6 +2,7 @@
 
 from typing import Protocol
 
+from agent.domain.knowledge import Chunk
 from agent.domain.models import Message, ModelResult
 
 
@@ -16,3 +17,19 @@ class ConversationStore(Protocol):
 
     def get(self, session_id: str) -> list[Message]: ...
     def append(self, session_id: str, message: Message) -> None: ...
+
+
+class Embedder(Protocol):
+    """Texto → vector. T2: Foundry text-embedding-3-small."""
+
+    def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+
+class KnowledgeBase(Protocol):
+    """Índice de conocimiento. S3: Qdrant en modo local; S5: Azure AI Search."""
+
+    def publish(self, chunks: list[Chunk]) -> None:
+        """Reemplaza todos los chunks de cada fuente publicada."""
+        ...
+
+    def count(self) -> int: ...

@@ -9,11 +9,12 @@ from fastapi import FastAPI
 
 from agent.application.chat_service import ChatService
 from agent.domain.errors import AgentError
-from agent.domain.ports import ChatModel
+from agent.domain.ports import ChatModel, Embedder
 from agent.infrastructure.api.routes import agent_error_handler, build_router
 from agent.infrastructure.config.settings import FoundrySettings, Settings
 from agent.infrastructure.llm.credentials import build_credential
 from agent.infrastructure.llm.foundry_chat_model import FoundryChatModel
+from agent.infrastructure.llm.foundry_embedder import FoundryEmbedder
 from agent.infrastructure.persistence.in_memory_store import InMemoryConversationStore
 from agent.infrastructure.prompts.loader import load_prompt
 
@@ -21,14 +22,29 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 log = logging.getLogger(__name__)
 
 
-def build_chat_model(foundry: FoundrySettings) -> ChatModel:
+def _require_endpoint(foundry: FoundrySettings) -> None:
     if not foundry.endpoint:
         raise RuntimeError("Falta FOUNDRY_ENDPOINT. Copia .env.example a .env y complétalo.")
     log.info("Foundry auth provider: %s", foundry.auth_provider)
+
+
+def build_chat_model(foundry: FoundrySettings) -> ChatModel:
+    _require_endpoint(foundry)
     return FoundryChatModel(
         endpoint=foundry.endpoint,
         credential=build_credential(foundry.auth_provider, foundry.api_key),
         deployment=foundry.deployment,
+        timeout_s=foundry.timeout_s,
+        max_retries=foundry.max_retries,
+    )
+
+
+def build_embedder(foundry: FoundrySettings) -> Embedder:
+    _require_endpoint(foundry)
+    return FoundryEmbedder(
+        endpoint=foundry.endpoint,
+        credential=build_credential(foundry.auth_provider, foundry.api_key),
+        deployment=foundry.embedding_deployment,
         timeout_s=foundry.timeout_s,
         max_retries=foundry.max_retries,
     )
