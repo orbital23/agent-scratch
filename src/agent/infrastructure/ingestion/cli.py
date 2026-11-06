@@ -2,17 +2,17 @@
 
 uv run ingest build      corpus → chunks + vectores → data/chunks/<dominio>.json
 uv run ingest publish    data/chunks/<dominio>.json → base vectorial local (Qdrant) en data/index/<dominio>/
+uv run ingest publish --target azure_search    → el índice del equipo en Azure AI Search
 """
 
 import argparse
 from collections import Counter
 
 from agent.application.ingest_corpus import IngestCorpus
-from agent.infrastructure.bootstrap import build_embedder
-from agent.infrastructure.config.settings import Settings
+from agent.infrastructure.bootstrap import build_embedder, build_knowledge_base
+from agent.infrastructure.config.settings import KnowledgeBaseKind, Settings
 from agent.infrastructure.ingestion.chunks_file import read_chunks, write_chunks
 from agent.infrastructure.ingestion.loaders import load_corpus
-from agent.infrastructure.search.qdrant_knowledge_base import QdrantKnowledgeBase
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -20,7 +20,7 @@ def main(argv: list[str] | None = None) -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("build", help="convierte, chunkea y embebe el corpus")
     publish = commands.add_parser("publish", help="publica los chunks armados en el índice")
-    publish.add_argument("--target", choices=["local"], default="local")  # S5 suma azure_search
+    publish.add_argument("--target", choices=list(KnowledgeBaseKind), help="por defecto, KNOWLEDGE_BASE de .env")
     args = parser.parse_args(argv)
 
     settings = Settings()
@@ -37,6 +37,6 @@ def main(argv: list[str] | None = None) -> None:
             print(f"{count:4}  {source}")
         print(f"{len(chunks)} chunks de {len(documents)} documentos -> {chunks_path}")
     else:
-        index = QdrantKnowledgeBase(ingest.data_dir / "index" / settings.domain, collection=settings.domain)
+        index = build_knowledge_base(settings, KnowledgeBaseKind(args.target) if args.target else None)
         index.publish(read_chunks(chunks_path))
-        print(f"{index.count()} chunks en {index.path}")
+        print(f"{index.count()} chunks en {index}")
