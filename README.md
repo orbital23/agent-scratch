@@ -19,7 +19,7 @@ Dominios: `fraud`, `fees`, `cards`, `loans` y `support` (variable `DOMAIN`).
 | Versión | Qué hace el agente | Estado |
 |---|---|---|
 | `main` | arquetipo: capas, contratos y `TODO` por sesión | ✅ |
-| `t1-s1` | `/chat` con respuesta tipada contra el mock de Foundry | ⏳ |
+| `t1-s1` | `/chat` con respuesta tipada contra el mock de Foundry | ✅ |
 | `t1-s2` = `t1-v0.1` | historial por sesión, errores tipados, consumo por turno y Entra ID | ⏳ |
 | `t2-s3` | ingesta del corpus del dominio e índice local | ⏳ |
 | `t2-s4` | retrieval híbrido y RAG con citas en `/chat` | ⏳ |
@@ -28,7 +28,7 @@ Dominios: `fraud`, `fees`, `cards`, `loans` y `support` (variable `DOMAIN`).
 | `t4-*` → `t4-v0.4` | despliegue, trazas, evaluaciones y guardrails | ⏳ |
 | `v1.0` | integración final | ⏳ |
 
-Esta copia está en `main` (el arquetipo de partida). Para saber en qué versión está la tuya: `git describe --tags`.
+Esta copia está en `t1-s1`. Para saber en qué versión está la tuya: `git describe --tags`.
 
 ## Requisitos
 

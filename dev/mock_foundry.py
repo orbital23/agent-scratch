@@ -3,16 +3,26 @@
 Uso:  uv run python dev/mock_foundry.py
 .env: FOUNDRY_ENDPOINT=http://127.0.0.1:8100  y  FOUNDRY_API_KEY=<cualquier valor>
 
-Responde {"intent", "answer"} detectando la intención por palabras clave.
+Chat: responde {"intent", "answer", "sources"} detectando la intención por palabras clave; en product_question
+cita el fragmento [1] del contexto y repite su comienzo. Con stream=true responde en pedazos, como Foundry.
+El rewrite devuelve la pregunta tal cual.
+Embeddings: vectores determinísticos por bolsa de palabras; textos con palabras en común quedan cerca.
 """
 
+import asyncio
+import base64
+import hashlib
 import json
+import math
 import os
+import re
+import struct
 import time
 from uuid import uuid4
 
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 # ponytail: heurística naive por palabras clave, suficiente para probar el flujo
 RULES = [
@@ -22,20 +32,39 @@ RULES = [
     ("greeting", ("hola", "buenos", "buenas", "gracias", "adiós")),
 ]
 
+DIM = 1536  # igual que text-embedding-3-small
+
 app = FastAPI(title="mock-foundry")
 
 
-@app.post("/openai/v1/chat/completions")
-async def chat_completions(request: Request, authorization: str = Header(default="")) -> dict:
+def _authorize(authorization: str) -> None:
     if not authorization.removeprefix("Bearer ").strip():
         raise HTTPException(401, {"error": {"code": "401", "message": "Falta la API key"}})
 
+
+@app.post("/openai/v1/chat/completions", response_model=None)  # responde JSON normal o en streaming
+async def chat_completions(request: Request, authorization: str = Header(default="")) -> dict | StreamingResponse:
+    _authorize(authorization)
+
     body = await request.json()
-    text = body["messages"][-1]["content"].lower()
-    intent = next((name for name, words in RULES if any(word in text for word in words)), "out_of_scope")
-    content = json.dumps({"intent": intent, "answer": f"[mock] intención detectada: {intent}"}, ensure_ascii=False)
+    question = body["messages"][-1]["content"]
+    # el SDK manda el nombre del modelo Pydantic que espera como respuesta
+    if body.get("response_format", {}).get("json_schema", {}).get("name") == "SearchQuery":
+        data = {"query": question}  # ponytail: no reescribe de verdad; alcanza para probar el flujo
+    else:
+        text = question.lower()
+        intent = next((name for name, words in RULES if any(word in text for word in words)), "out_of_scope")
+        answer = f"[mock] intención detectada: {intent}."
+        sources = []
+        if intent == "product_question" and (fragment := _first_fragment(body["messages"])):
+            answer, sources = f"{answer} El fragmento [1] dice: {fragment}", [1]
+        data = {"intent": intent, "answer": answer, "sources": sources}
+    content = json.dumps(data, ensure_ascii=False)
     prompt_tokens = sum(len(str(message["content"]).split()) for message in body["messages"])
     completion_tokens = len(content.split())
+    usage = {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": prompt_tokens + completion_tokens}
+    if body.get("stream"):
+        return StreamingResponse(_stream_chunks(body["model"], content, usage), media_type="text/event-stream")
     return {
         "id": f"mock-{uuid4().hex[:8]}",
         "object": "chat.completion",
@@ -48,12 +77,63 @@ async def chat_completions(request: Request, authorization: str = Header(default
                 "message": {"role": "assistant", "content": content, "refusal": None},
             }
         ],
-        "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens,
-        },
+        "usage": usage,
     }
+
+
+def _first_fragment(messages: list[dict]) -> str:
+    """El comienzo del fragmento [1] del contexto, si lo hay."""
+    for message in messages:
+        if message["role"] == "system" and "\n[1] " in message["content"]:
+            block = message["content"].split("\n[1] ", 1)[1].split("\n\n[2] ", 1)[0]
+            text = block.split("\n", 1)[-1]  # la primera línea es el nombre del documento
+            return " ".join(text.split())[:200]
+    return ""
+
+
+async def _stream_chunks(model: str, content: str, usage: dict):
+    """Igual que Foundry con stream=true: la respuesta en pedazos chat.completion.chunk y al final el consumo."""
+    chunk_id, created = f"mock-{uuid4().hex[:8]}", int(time.time())
+
+    def chunk(choices: list, usage: dict | None = None) -> str:
+        data = {"id": chunk_id, "object": "chat.completion.chunk", "created": created, "model": model, "choices": choices}
+        return f"data: {json.dumps({**data, 'usage': usage}, ensure_ascii=False)}\n\n"
+
+    yield chunk([{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}])
+    for start in range(0, len(content), 8):
+        await asyncio.sleep(0.02)  # una pausa corta, para que en el chat se vea cómo va apareciendo
+        yield chunk([{"index": 0, "delta": {"content": content[start : start + 8]}, "finish_reason": None}])
+    yield chunk([{"index": 0, "delta": {}, "finish_reason": "stop"}])
+    yield chunk([], usage)
+    yield "data: [DONE]\n\n"
+
+
+@app.post("/openai/v1/embeddings")
+async def embeddings(request: Request, authorization: str = Header(default="")) -> dict:
+    _authorize(authorization)
+    body = await request.json()
+    texts = body["input"] if isinstance(body["input"], list) else [body["input"]]
+    # el SDK de openai pide base64 por defecto y lo decodifica solo
+    as_base64 = body.get("encoding_format") == "base64"
+    data = [
+        {"object": "embedding", "index": position, "embedding": _encode(_embed(text), as_base64)}
+        for position, text in enumerate(texts)
+    ]
+    tokens = sum(len(text.split()) for text in texts)
+    return {"object": "list", "data": data, "model": body["model"], "usage": {"prompt_tokens": tokens, "total_tokens": tokens}}
+
+
+def _embed(text: str) -> list[float]:
+    # ponytail: bolsa de palabras con hash, sin semántica real; alcanza para probar el flujo sin Azure
+    vector = [0.0] * DIM
+    for word in re.findall(r"\w+", text.lower()):
+        vector[int(hashlib.md5(word.encode()).hexdigest(), 16) % DIM] += 1.0
+    magnitude = math.sqrt(sum(value * value for value in vector)) or 1.0
+    return [value / magnitude for value in vector]
+
+
+def _encode(vector: list[float], as_base64: bool) -> str | list[float]:
+    return base64.b64encode(struct.pack(f"<{len(vector)}f", *vector)).decode() if as_base64 else vector
 
 
 if __name__ == "__main__":
