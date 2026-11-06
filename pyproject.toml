@@ -5,7 +5,9 @@ description = "Agente conversacional bancario en capas domain / application / in
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "azure-identity>=1.26.0",
+    "azure-search-documents>=12.0.0",
     "fastapi>=0.115",
+    "jiter>=0.17.0",
     "openai>=3.35.1",
     "pydantic-settings>=2.16.0",
     "pypdf>=6.21",

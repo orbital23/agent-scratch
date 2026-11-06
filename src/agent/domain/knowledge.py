@@ -26,3 +26,18 @@ class Chunk(BaseModel):
     valid_from: date | None = None
     valid_until: date | None = None
     source: str
+
+
+class SearchHit(BaseModel):
+    """Un chunk que encontró la búsqueda, con su puntaje: más alto, más relevante."""
+
+    chunk: Chunk
+    score: float
+
+
+class Citation(BaseModel):
+    """De dónde salió una respuesta: el documento y la sección del chunk que usó el modelo."""
+
+    source: str
+    section: str
+    chunk_id: str

@@ -41,11 +41,24 @@ jobs:
       FOUNDRY_ENDPOINT: ${{ vars.FOUNDRY_ENDPOINT }}
       FOUNDRY_DEPLOYMENT: ${{ vars.FOUNDRY_DEPLOYMENT }}
       FOUNDRY_AUTH_PROVIDER: ${{ vars.FOUNDRY_AUTH_PROVIDER }}
+      FOUNDRY_EMBEDDING_DEPLOYMENT: ${{ vars.FOUNDRY_EMBEDDING_DEPLOYMENT || 'text-embedding-3-small' }}
+      DOMAIN: ${{ vars.DOMAIN }}
+      SEARCH_ENDPOINT: ${{ vars.SEARCH_ENDPOINT }}
+      SEARCH_INDEX: ${{ vars.SEARCH_INDEX }}
       APP_IDENTITY_ID: ${{ vars.APP_IDENTITY_ID }}
       APP_IDENTITY_CLIENT_ID: ${{ vars.APP_IDENTITY_CLIENT_ID }}
       FOUNDRY_API_KEY_KV_URI: ${{ vars.FOUNDRY_API_KEY_KV_URI }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Variables del agente (dominio y AI Search)
+        run: |
+          for name in DOMAIN SEARCH_ENDPOINT SEARCH_INDEX; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Falta la variable $name (Settings -> Secrets and variables -> Actions -> Variables)."
+              exit 1
+            fi
+          done
 
       - name: Login a Azure (OIDC, sin secretos)
         uses: azure/login@v2
@@ -73,6 +86,12 @@ jobs:
             "FOUNDRY_DEPLOYMENT=$FOUNDRY_DEPLOYMENT"
             "FOUNDRY_AUTH_PROVIDER=$FOUNDRY_AUTH_PROVIDER"
             "AZURE_CLIENT_ID=$APP_IDENTITY_CLIENT_ID"
+            "DOMAIN=$DOMAIN"
+            "FOUNDRY_EMBEDDING_DEPLOYMENT=$FOUNDRY_EMBEDDING_DEPLOYMENT"
+            # el agente desplegado busca en el índice del equipo: la base local (data/) no viaja en la imagen
+            "KNOWLEDGE_BASE=azure_search"
+            "SEARCH_ENDPOINT=$SEARCH_ENDPOINT"
+            "SEARCH_INDEX=$SEARCH_INDEX"
           )
           if [ "$FOUNDRY_AUTH_PROVIDER" = "api_key" ]; then
             env_vars+=("FOUNDRY_API_KEY=secretref:foundry-api-key")
