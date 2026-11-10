@@ -8,8 +8,14 @@ dependencies = [
     "fastapi>=0.115",
     "openai>=3.35.1",
     "pydantic-settings>=2.16.0",
+    "pypdf>=6.21",
+    "python-docx>=1.2",
+    "qdrant-client>=1.20.0",
     "uvicorn>=0.30",
 ]
+
+[project.scripts]
+ingest = "agent.infrastructure.ingestion.cli:main"
 
 [dependency-groups]
 dev = [

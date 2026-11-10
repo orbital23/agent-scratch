@@ -1,4 +1,4 @@
-"""Implementaciones de prueba del puerto ChatModel: sin red ni Foundry."""
+"""Implementaciones de prueba de los puertos ChatModel y Embedder: sin red ni Foundry."""
 
 from agent.domain.errors import AgentError, ErrorKind
 from agent.domain.models import AgentReply, Intent, Message, ModelResult, Usage
@@ -36,3 +36,14 @@ class FailingChatModel:
 
     def complete(self, messages: list[Message]) -> ModelResult:
         raise AgentError(self.kind, "falla simulada")
+
+
+class FakeEmbedder:
+    DIM = 8
+
+    def __init__(self) -> None:
+        self.calls: list[int] = []
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        self.calls.append(len(texts))
+        return [[float(len(text))] * self.DIM for text in texts]
