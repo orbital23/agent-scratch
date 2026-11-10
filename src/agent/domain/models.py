@@ -3,6 +3,8 @@ from typing import Annotated, Any, Self
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
+from agent.domain.knowledge import Citation
+
 Message = dict[str, Any]  # formato OpenAI; T3 suma role "tool" sin cambiar el tipo
 
 
@@ -26,10 +28,25 @@ class AgentReply(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # el modelo escribe los campos en este orden: con streaming, intent llega antes que answer y sources al final
     intent: Intent = Field(description="Intención del último mensaje del cliente.")
     # validación posterior y no en el schema: el modo strict no admite todo JSON Schema (p. ej. minLength)
     answer: Annotated[str, AfterValidator(_not_blank)] = Field(
         description="Respuesta al cliente en español, breve y clara."
+    )
+    sources: list[int] = Field(
+        description="Números de los fragmentos del contexto que usaste para responder, por ejemplo [1, 3]. "
+        "Lista vacía si no usaste ninguno."
+    )
+
+
+class SearchQuery(BaseModel):
+    """Pregunta reescrita para buscar en el corpus (structured output del rewrite)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    query: Annotated[str, AfterValidator(_not_blank)] = Field(
+        description="La última pregunta del cliente reescrita para que se entienda sola, sin leer la conversación."
     )
 
 
@@ -59,8 +76,32 @@ class ModelResult(BaseModel):
     usage: Usage
 
 
+class RewriteResult(BaseModel):
+    """Una llamada de rewrite: la pregunta para buscar + consumo."""
+
+    query: str
+    usage: Usage
+
+
 class AgentTurn(BaseModel):
-    """Resultado de un turno. T2 agrega citations; T3 tool_calls y pending_action."""
+    """Resultado de un turno, con las fuentes que citó. T3 agrega tool_calls y pending_action."""
 
     reply: AgentReply
     usage: Usage
+    citations: list[Citation] = []
+
+
+class IntentDetected(BaseModel):
+    """Streaming: ya se sabe la intención, antes de que empiece el texto de la respuesta."""
+
+    intent: Intent
+
+
+class AnswerDelta(BaseModel):
+    """Streaming: un pedazo nuevo de la respuesta, mientras el modelo la escribe."""
+
+    text: str
+
+
+type ModelEvent = IntentDetected | AnswerDelta | ModelResult  # lo que entrega ChatModel.stream; el último es ModelResult
+type TurnEvent = IntentDetected | AnswerDelta | AgentTurn  # lo que entrega ChatService.handle_stream; el último es AgentTurn

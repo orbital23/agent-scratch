@@ -1,6 +1,7 @@
 from openai import OpenAI
 
 from agent.infrastructure.llm.credentials import Credential
+from agent.infrastructure.llm.errors import foundry_errors
 
 
 class FoundryEmbedder:
@@ -16,5 +17,6 @@ class FoundryEmbedder:
         self.deployment = deployment
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        response = self.client.embeddings.create(model=self.deployment, input=texts)
+        with foundry_errors():
+            response = self.client.embeddings.create(model=self.deployment, input=texts)
         return [item.embedding for item in sorted(response.data, key=lambda item: item.index)]

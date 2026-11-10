@@ -33,8 +33,6 @@ Agente [out_of_scope]: No puedo proporcionar la cotización del dólar en tiempo
   (4265 ms, 1062 tokens de entrada, 370 de salida)
 
 
-
-
 Preguntas
 ================
 ¿gpt-5-mini o gpt-5-nano para clasificar intención? ¿Qué pasa con la latencia y la calidad?
@@ -45,3 +43,8 @@ Asumiendo 10 millones de conversaciones al mes que llegan todas al tope de turno
 
 ¿Conviene un modelo chico para greeting y out_of_scope, y uno grande solo para el resto?
 Si, por reduccion de costos
+
+
+Sesion 03
+=========
+El tamaño de los chunks se configura con INGEST_CHUNK_MAX_CHARS 
