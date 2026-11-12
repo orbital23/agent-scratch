@@ -3,7 +3,8 @@
 from collections.abc import Iterator
 from typing import Protocol
 
-from agent.domain.knowledge import Chunk, SearchHit
+from agent.domain.evaluation import Verdict
+from agent.domain.knowledge import Chunk, Citation, SearchHit
 from agent.domain.models import Message, ModelEvent, ModelResult, RewriteResult
 
 
@@ -48,3 +49,9 @@ class KnowledgeBase(Protocol):
     def search(self, text: str, vector: list[float], top_k: int) -> list[SearchHit]:
         """Los top_k chunks vigentes más relevantes para la pregunta, del más al menos relevante."""
         ...
+
+
+class Judge(Protocol):
+    """Califica una respuesta contra los fragmentos que vio el modelo. S5: G-Eval o decision-1, según JUDGE."""
+
+    def evaluate(self, question: str, fragments: list[SearchHit], answer: str, cited: list[Citation]) -> Verdict: ...

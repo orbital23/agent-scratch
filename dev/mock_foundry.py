@@ -5,7 +5,7 @@ Uso:  uv run python dev/mock_foundry.py
 
 Chat: responde {"intent", "answer", "sources"} detectando la intención por palabras clave; en product_question
 cita el fragmento [1] del contexto y repite su comienzo. Con stream=true responde en pedazos, como Foundry.
-El rewrite devuelve la pregunta tal cual.
+El rewrite devuelve la pregunta tal cual. El juez G-Eval y decision-1 ponen notas fijas (S5).
 Embeddings: vectores determinísticos por bolsa de palabras; textos con palabras en común quedan cerca.
 """
 
@@ -49,8 +49,11 @@ async def chat_completions(request: Request, authorization: str = Header(default
     body = await request.json()
     question = body["messages"][-1]["content"]
     # el SDK manda el nombre del modelo Pydantic que espera como respuesta
-    if body.get("response_format", {}).get("json_schema", {}).get("name") == "SearchQuery":
+    schema = body.get("response_format", {}).get("json_schema", {}).get("name")
+    if schema == "SearchQuery":
         data = {"query": question}  # ponytail: no reescribe de verdad; alcanza para probar el flujo
+    elif schema == "GEvalScores":  # el juez de la S5: una nota fija, con su razonamiento
+        data = {"reasoning": "[mock] la respuesta repite el fragmento [1].", "groundedness": 4, "relevance": 4, "citation_correct": 4}
     else:
         text = question.lower()
         intent = next((name for name, words in RULES if any(word in text for word in words)), "out_of_scope")
@@ -135,6 +138,21 @@ def _embed(text: str) -> list[float]:
 def _encode(vector: list[float], as_base64: bool) -> str | list[float]:
     return base64.b64encode(struct.pack(f"<{len(vector)}f", *vector)).decode() if as_base64 else vector
 
+
+
+@app.post("/providers/microsoft/v1/systemone")
+async def decision(request: Request, authorization: str = Header(default=""), api_key: str = Header(default="", alias="api-key")) -> dict:
+    """decision-1 de mentira: puntajes fijos, más altos si la respuesta citó fuentes."""
+    if not (authorization.removeprefix("Bearer ").strip() or api_key):
+        raise HTTPException(401, {"error": {"code": "401", "message": "Falta la credencial"}})
+    body = await request.json()
+    supported = bool(body["state"]["fragments"]) and bool(body["state"]["cited_sources"])
+    answers = {
+        name: {"type": "score", "score": 3.5 if supported else 1.0} if question["type"] == "score"
+        else {"type": "noul", "noul": 0.9 if supported else 0.2}
+        for name, question in body["questions"].items()
+    }
+    return {"model": "decision-1", "answers": answers, "usage": {"input_tokens": len(json.dumps(body).split())}}
 
 if __name__ == "__main__":
     uvicorn.run(app, host=os.environ.get("MOCK_HOST", "127.0.0.1"), port=8100)

@@ -46,11 +46,11 @@ class FoundryChatModel:
         self.deployment = deployment
 
     def complete(self, messages: list[Message]) -> ModelResult:
-        reply, usage = self._parse(messages, AgentReply)
+        reply, usage = self.parse(messages, AgentReply)
         return ModelResult(reply=reply, usage=usage)
 
     def rewrite(self, messages: list[Message]) -> RewriteResult:
-        search, usage = self._parse(messages, SearchQuery)
+        search, usage = self.parse(messages, SearchQuery)
         return RewriteResult(query=search.query, usage=usage)
 
     def stream(self, messages: list[Message]) -> Iterator[ModelEvent]:
@@ -78,7 +78,8 @@ class FoundryChatModel:
         reply, usage = self._parsed_and_usage(completion, start, AgentReply)
         yield ModelResult(reply=reply, usage=usage)
 
-    def _parse[Output: BaseModel](self, messages: list[Message], schema: type[Output]) -> tuple[Output, Usage]:
+    def parse[Output: BaseModel](self, messages: list[Message], schema: type[Output]) -> tuple[Output, Usage]:
+        """Cualquier structured output: lo usan complete, rewrite y el juez G-Eval (S5)."""
         start = time.perf_counter()
         with foundry_errors():
             completion = self.client.chat.completions.parse(

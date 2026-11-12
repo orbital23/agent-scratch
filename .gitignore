@@ -6,3 +6,6 @@ __pycache__/
 data/**
 !data/*/
 !data/*/.gitkeep
+# evals/golden: el golden set base llega en evals.zip (plataforma); se versiona solo el caso de cada participante
+evals/golden/*.jsonl
+!evals/golden/*.AIE_*.jsonl
