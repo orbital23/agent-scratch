@@ -1,0 +1,1062 @@
+[
+  {
+    "name": "block_card",
+    "domains": [
+      "fraud"
+    ],
+    "description": "Bloquea una tarjeta de forma definitiva. Acción sensible.",
+    "annotations": {
+      "read_only_hint": false,
+      "destructive_hint": true,
+      "idempotent_hint": false,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "card_id": {
+          "description": "Código de la tarjeta, por ejemplo CRD-2001.",
+          "pattern": "^CRD-\\d{4}$",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Motivo: robo, pérdida, fraude.",
+          "minLength": 3,
+          "type": "string"
+        }
+      },
+      "required": [
+        "card_id",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "customer_id": {
+          "type": "string"
+        },
+        "product": {
+          "type": "string"
+        },
+        "last4": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        "currency": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "customer_id",
+        "product",
+        "last4",
+        "status",
+        "currency"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "file_claim",
+    "domains": [
+      "fraud"
+    ],
+    "description": "Registra un reclamo por un movimiento del cliente. Acción sensible.",
+    "annotations": {
+      "read_only_hint": false,
+      "destructive_hint": true,
+      "idempotent_hint": false,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "customer_id": {
+          "description": "Código del cliente, por ejemplo CUS-1001.",
+          "pattern": "^CUS-\\d{4}$",
+          "type": "string"
+        },
+        "transaction_id": {
+          "description": "Movimiento reclamado, por ejemplo TRX-3002.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Motivo, con las palabras del cliente.",
+          "minLength": 5,
+          "type": "string"
+        }
+      },
+      "required": [
+        "customer_id",
+        "transaction_id",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "customer_id": {
+          "type": "string"
+        },
+        "transaction_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "opened_on": {
+          "format": "date",
+          "type": "string"
+        },
+        "response_due_on": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "customer_id",
+        "transaction_id",
+        "reason",
+        "status",
+        "opened_on",
+        "response_due_on"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "find_branches",
+    "domains": [
+      "support"
+    ],
+    "description": "Agencias y agentes, filtrados por distrito o por servicio.",
+    "annotations": {
+      "read_only_hint": true,
+      "destructive_hint": false,
+      "idempotent_hint": true,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "district": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Distrito, por ejemplo Miraflores."
+        },
+        "service": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Servicio: caja, plataforma, cajero."
+        }
+      },
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "result": {
+          "items": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "district": {
+                "type": "string"
+              },
+              "address": {
+                "type": "string"
+              },
+              "hours": {
+                "type": "string"
+              },
+              "services": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "district",
+              "address",
+              "hours",
+              "services"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object",
+      "x-fastmcp-wrap-result": true
+    }
+  },
+  {
+    "name": "get_cards",
+    "domains": [
+      "cards"
+    ],
+    "description": "Tarjetas del cliente, con su producto, últimos 4 dígitos y estado.",
+    "annotations": {
+      "read_only_hint": true,
+      "destructive_hint": false,
+      "idempotent_hint": true,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "customer_id": {
+          "description": "Código del cliente, por ejemplo CUS-1001.",
+          "pattern": "^CUS-\\d{4}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "customer_id"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "result": {
+          "items": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "customer_id": {
+                "type": "string"
+              },
+              "product": {
+                "type": "string"
+              },
+              "last4": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "active",
+                  "blocked"
+                ],
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "customer_id",
+              "product",
+              "last4",
+              "status",
+              "currency"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object",
+      "x-fastmcp-wrap-result": true
+    }
+  },
+  {
+    "name": "get_charged_fees",
+    "domains": [
+      "fees"
+    ],
+    "description": "Comisiones cobradas al cliente, con la marca de si el tarifario permite pedir su devolución.",
+    "annotations": {
+      "read_only_hint": true,
+      "destructive_hint": false,
+      "idempotent_hint": true,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "customer_id": {
+          "description": "Código del cliente, por ejemplo CUS-1001.",
+          "pattern": "^CUS-\\d{4}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "customer_id"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "result": {
+          "items": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "date": {
+                "format": "date",
+                "type": "string"
+              },
+              "concept": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "number"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "refundable": {
+                "description": "Si el tarifario permite pedir la devolución de esta comisión.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "date",
+              "concept",
+              "amount",
+              "currency",
+              "refundable"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object",
+      "x-fastmcp-wrap-result": true
+    }
+  },
+  {
+    "name": "get_claim_status",
+    "domains": [
+      "fraud"
+    ],
+    "description": "Estado de un reclamo y fecha límite de respuesta.",
+    "annotations": {
+      "read_only_hint": true,
+      "destructive_hint": false,
+      "idempotent_hint": true,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_id": {
+          "description": "Código del reclamo, por ejemplo CLM-5001.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_id"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "customer_id": {
+          "type": "string"
+        },
+        "transaction_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "opened_on": {
+          "format": "date",
+          "type": "string"
+        },
+        "response_due_on": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "customer_id",
+        "transaction_id",
+        "reason",
+        "status",
+        "opened_on",
+        "response_due_on"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_credit_line",
+    "domains": [
+      "cards"
+    ],
+    "description": "Línea de crédito de una tarjeta: total, usada, disponible y máxima a la que puede aumentarse.",
+    "annotations": {
+      "read_only_hint": true,
+      "destructive_hint": false,
+      "idempotent_hint": true,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "card_id": {
+          "description": "Código de la tarjeta, por ejemplo CRD-2001.",
+          "pattern": "^CRD-\\d{4}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "card_id"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "card_id": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "used": {
+          "type": "number"
+        },
+        "available": {
+          "type": "number"
+        },
+        "max_eligible": {
+          "description": "Línea máxima a la que el cliente puede pedir un aumento.",
+          "type": "number"
+        },
+        "currency": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "card_id",
+        "limit",
+        "used",
+        "available",
+        "max_eligible",
+        "currency"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_credit_profile",
+    "domains": [
+      "loans"
+    ],
+    "description": "Perfil crediticio del cliente: banda, monto máximo preaprobado y endeudamiento.",
+    "annotations": {
+      "read_only_hint": true,
+      "destructive_hint": false,
+      "idempotent_hint": true,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "customer_id": {
+          "description": "Código del cliente, por ejemplo CUS-1001.",
+          "pattern": "^CUS-\\d{4}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "customer_id"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "customer_id": {
+          "type": "string"
+        },
+        "score_band": {
+          "type": "string"
+        },
+        "max_loan_amount": {
+          "type": "number"
+        },
+        "active_loans": {
+          "type": "integer"
+        },
+        "debt_to_income": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "customer_id",
+        "score_band",
+        "max_loan_amount",
+        "active_loans",
+        "debt_to_income"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_request_status",
+    "domains": [
+      "support"
+    ],
+    "description": "Estado de una solicitud de atención del cliente.",
+    "annotations": {
+      "read_only_hint": true,
+      "destructive_hint": false,
+      "idempotent_hint": true,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "description": "Código de la solicitud, por ejemplo REQ-6001.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "customer_id": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "channel": {
+          "type": "string"
+        },
+        "updated_on": {
+          "format": "date",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "customer_id",
+        "type",
+        "status",
+        "channel",
+        "updated_on"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "get_transactions",
+    "domains": [
+      "fees",
+      "fraud"
+    ],
+    "description": "Últimos movimientos del cliente, del más reciente al más antiguo. Un monto negativo es un cargo.",
+    "annotations": {
+      "read_only_hint": true,
+      "destructive_hint": false,
+      "idempotent_hint": true,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "customer_id": {
+          "description": "Código del cliente, por ejemplo CUS-1001.",
+          "pattern": "^CUS-\\d{4}$",
+          "type": "string"
+        },
+        "limit": {
+          "default": 10,
+          "description": "Cuántos movimientos traer.",
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "customer_id"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "result": {
+          "items": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "date": {
+                "format": "date",
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "amount": {
+                "description": "Monto en la moneda indicada; negativo es un cargo.",
+                "type": "number"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "card_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "channel": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "date",
+              "description",
+              "amount",
+              "currency",
+              "card_id",
+              "channel"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "type": "object",
+      "x-fastmcp-wrap-result": true
+    }
+  },
+  {
+    "name": "request_credit_line_increase",
+    "domains": [
+      "cards"
+    ],
+    "description": "Registra el pedido de aumento de línea de una tarjeta. Acción sensible.",
+    "annotations": {
+      "read_only_hint": false,
+      "destructive_hint": true,
+      "idempotent_hint": false,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "card_id": {
+          "description": "Código de la tarjeta, por ejemplo CRD-2001.",
+          "pattern": "^CRD-\\d{4}$",
+          "type": "string"
+        },
+        "requested_limit": {
+          "description": "Nueva línea total pedida, en soles.",
+          "exclusiveMinimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "card_id",
+        "requested_limit"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "card_id": {
+          "type": "string"
+        },
+        "requested_limit": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "card_id",
+        "requested_limit",
+        "status"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "request_fee_refund",
+    "domains": [
+      "fees"
+    ],
+    "description": "Registra el pedido de devolución de una comisión cobrada. Acción sensible.",
+    "annotations": {
+      "read_only_hint": false,
+      "destructive_hint": true,
+      "idempotent_hint": false,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "fee_id": {
+          "description": "Código de la comisión, por ejemplo FEE-4002.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Motivo, con las palabras del cliente.",
+          "minLength": 5,
+          "type": "string"
+        }
+      },
+      "required": [
+        "fee_id",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "fee_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "fee_id",
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "simulate_installment",
+    "domains": [
+      "loans"
+    ],
+    "description": "Calcula la cuota mensual fija de un préstamo. La cuota siempre sale de esta tool, nunca de una estimación.",
+    "annotations": {
+      "read_only_hint": true,
+      "destructive_hint": false,
+      "idempotent_hint": true,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "amount": {
+          "description": "Monto del préstamo, en soles.",
+          "exclusiveMinimum": 0,
+          "maximum": 500000,
+          "type": "number"
+        },
+        "term_months": {
+          "description": "Plazo en meses.",
+          "maximum": 360,
+          "minimum": 6,
+          "type": "integer"
+        },
+        "annual_rate": {
+          "default": 0.18,
+          "description": "TEA como fracción: 0.18 es 18 %.",
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "amount",
+        "term_months"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "amount": {
+          "type": "number"
+        },
+        "term_months": {
+          "type": "integer"
+        },
+        "annual_rate": {
+          "type": "number"
+        },
+        "monthly_installment": {
+          "type": "number"
+        },
+        "total_paid": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "amount",
+        "term_months",
+        "annual_rate",
+        "monthly_installment",
+        "total_paid",
+        "currency"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "submit_loan_application",
+    "domains": [
+      "loans"
+    ],
+    "description": "Registra una solicitud de préstamo. Acción sensible.",
+    "annotations": {
+      "read_only_hint": false,
+      "destructive_hint": true,
+      "idempotent_hint": false,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "customer_id": {
+          "description": "Código del cliente, por ejemplo CUS-1001.",
+          "pattern": "^CUS-\\d{4}$",
+          "type": "string"
+        },
+        "product": {
+          "description": "Producto: personal, vehicular o hipotecario.",
+          "type": "string"
+        },
+        "amount": {
+          "description": "Monto pedido, en soles.",
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "term_months": {
+          "description": "Plazo en meses.",
+          "maximum": 360,
+          "minimum": 6,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "customer_id",
+        "product",
+        "amount",
+        "term_months"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "customer_id": {
+          "type": "string"
+        },
+        "product": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "term_months": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "customer_id",
+        "product",
+        "amount",
+        "term_months",
+        "status"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "update_contact_details",
+    "domains": [
+      "support"
+    ],
+    "description": "Actualiza el correo o el teléfono del cliente. Acción sensible.",
+    "annotations": {
+      "read_only_hint": false,
+      "destructive_hint": true,
+      "idempotent_hint": false,
+      "open_world_hint": false
+    },
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "customer_id": {
+          "description": "Código del cliente, por ejemplo CUS-1001.",
+          "pattern": "^CUS-\\d{4}$",
+          "type": "string"
+        },
+        "email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nuevo correo."
+        },
+        "phone": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nuevo teléfono."
+        }
+      },
+      "required": [
+        "customer_id"
+      ],
+      "type": "object"
+    },
+    "output_schema": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "full_name": {
+          "type": "string"
+        },
+        "document_masked": {
+          "description": "Documento de identidad enmascarado, por ejemplo ****5678.",
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "phone": {
+          "type": "string"
+        },
+        "segment": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "full_name",
+        "document_masked",
+        "email",
+        "phone",
+        "segment"
+      ],
+      "type": "object"
+    }
+  }
+]
