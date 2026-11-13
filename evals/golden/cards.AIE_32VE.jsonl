@@ -1,0 +1,1 @@
+{"id": "cards-AIE32VE", "type": "answerable", "history": [], "question": "¿Que puedes canjear en el programa de millas y puntos?", "expected_intent": "product_question", "expected_sources": ["miles-and-points.html"], "forbidden_sources": [], "key_facts": ["Pasajes, productos del catálogo o descuento en el estado de cuenta"]}
