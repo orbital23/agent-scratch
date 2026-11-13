@@ -4,20 +4,22 @@ Arranque: uv run uvicorn agent.infrastructure.bootstrap:create_app --factory --r
 """
 
 import logging
+from urllib.parse import urlparse
 
-from azure.identity import DefaultAzureCredential
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from fastapi import FastAPI
 
 from agent.application.chat_service import ChatService
 from agent.domain.errors import AgentError
-from agent.domain.ports import Embedder, Judge, KnowledgeBase
+from agent.domain.ports import Embedder, Judge, KnowledgeBase, Tools
 from agent.infrastructure.api.routes import agent_error_handler, build_router
-from agent.infrastructure.config.settings import FoundrySettings, JudgeKind, KnowledgeBaseKind, Settings
+from agent.infrastructure.config.settings import FoundrySettings, JudgeKind, KnowledgeBaseKind, McpSettings, Settings
 from agent.infrastructure.evaluation.decision_judge import DecisionJudge
 from agent.infrastructure.evaluation.geval_judge import GEvalJudge
 from agent.infrastructure.llm.credentials import build_credential
 from agent.infrastructure.llm.foundry_chat_model import FoundryChatModel
 from agent.infrastructure.llm.foundry_embedder import FoundryEmbedder
+from agent.infrastructure.mcp.mcp_tools import McpTools
 from agent.infrastructure.persistence.in_memory_store import InMemoryConversationStore
 from agent.infrastructure.prompts.loader import load_prompt
 from agent.infrastructure.search.azure_search_knowledge_base import AzureSearchKnowledgeBase
@@ -80,6 +82,30 @@ def build_ready_knowledge_base(settings: Settings) -> KnowledgeBase:
     return knowledge_base
 
 
+def build_tools(mcp: McpSettings, domain: str) -> Tools | None:
+    """Las tools de tu dominio en el MCP de MCP_URL, ya listadas: sin MCP el agente no arranca. MCP_URL vacío: solo RAG."""
+    if not mcp.url:
+        return None
+    # el compartido está detrás de Entra: az login en local, Managed Identity desplegado
+    token = get_bearer_token_provider(DefaultAzureCredential(), mcp.scope) if mcp.scope else None
+    tools = McpTools(mcp.url, domain, token)
+    try:
+        definitions = tools.definitions()
+    except AgentError as error:
+        raise RuntimeError(_mcp_hint(mcp)) from error
+    log.info("MCP: %s · %d tools: %s", mcp.url, len(definitions), ", ".join(tool.name for tool in definitions))
+    return tools
+
+
+def _mcp_hint(mcp: McpSettings) -> str:
+    """Qué revisar cuando el MCP no responde. El cliente MCP no expone el código HTTP: se deduce de la configuración."""
+    if urlparse(mcp.url).hostname in ("127.0.0.1", "localhost"):
+        return f"No hay un MCP en {mcp.url}. Levanta el mock (uv run python dev/mcp/mock_mcp.py) o deja MCP_URL vacío."
+    if not mcp.scope:
+        return f"El MCP en {mcp.url} no respondió: falta MCP_SCOPE en el .env (el compartido pide un token de Entra)."
+    return f"El MCP en {mcp.url} no respondió o rechazó tu token: revisa MCP_URL, MCP_SCOPE y que hiciste az login."
+
+
 def build_judge(settings: Settings, kind: JudgeKind | None = None) -> Judge:
     foundry = settings.foundry
     match kind or settings.judge:
@@ -96,6 +122,7 @@ def build_chat_service(
     chat_model: FoundryChatModel | None = None,  # en los tests, un fake con complete y rewrite
     embedder: Embedder | None = None,
     knowledge_base: KnowledgeBase | None = None,
+    tools: Tools | None = None,  # en los tests, un fake
 ) -> ChatService:
     """El agente completo. Lo usan la API y la evaluación (uv run eval): se evalúa exactamente lo que se despliega."""
     model = chat_model or build_chat_model(settings.foundry)
@@ -108,6 +135,7 @@ def build_chat_service(
         system_prompt=load_prompt(settings.domain),
         max_turns=settings.max_turns,
         top_k=settings.search.top_k,
+        tools=tools or build_tools(settings.mcp, settings.domain),
     )
 
 
@@ -116,9 +144,10 @@ def create_app(
     settings: Settings | None = None,
     embedder: Embedder | None = None,
     knowledge_base: KnowledgeBase | None = None,
+    tools: Tools | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
-    chat_service = build_chat_service(settings, chat_model, embedder, knowledge_base)
+    chat_service = build_chat_service(settings, chat_model, embedder, knowledge_base, tools)
     app = FastAPI(title=f"agent-{settings.domain}")
     app.include_router(build_router(chat_service))
     app.add_exception_handler(AgentError, agent_error_handler)
