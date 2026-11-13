@@ -1,17 +1,29 @@
 import pytest
-from fakes import FailingChatModel, FakeEmbedder, FakeKnowledgeBase, InterruptedChatModel, RecordingChatModel
+from fakes import (
+    FailingChatModel,
+    FakeEmbedder,
+    FakeKnowledgeBase,
+    FakeTools,
+    InterruptedChatModel,
+    RecordingChatModel,
+    ToolCallingChatModel,
+)
 
-from agent.application.chat_service import ChatService
+from agent.application.chat_service import MAX_TOOL_ROUNDS, TOOLS_HEADER, ChatService
 from agent.domain.errors import AgentError, ErrorKind
 from agent.domain.knowledge import Chunk, Citation
-from agent.domain.models import AgentTurn, AnswerDelta, Intent, IntentDetected
+from agent.domain.models import AgentTurn, AnswerDelta, Intent, IntentDetected, ToolCall, ToolResult, ToolStatus
 from agent.infrastructure.persistence.in_memory_store import InMemoryConversationStore
 
 DEADLINES = Chunk(id="c1", content="Plazos\n\nSe responde en 15 días.", doc_type="regulation", section="Plazos", source="regulation.pdf")
 CHANNELS = Chunk(id="c2", content="Canales\n\nApp y agencias.", doc_type="faq", section="Canales", source="channels.html")
 
 
-def make_service(model, max_turns: int = 10, chunks: list[Chunk] | None = None) -> ChatService:
+FEES = ToolCall(id="call-1", name="get_charged_fees", arguments={"customer_id": "CUS-1001"})
+REFUND = ToolCall(id="call-2", name="request_fee_refund", arguments={"fee_id": "FEE-4002", "reason": "cobro indebido"})
+
+
+def make_service(model, max_turns: int = 10, chunks: list[Chunk] | None = None, tools=None) -> ChatService:
     return ChatService(
         model=model,
         rewriter=model,
@@ -21,6 +33,7 @@ def make_service(model, max_turns: int = 10, chunks: list[Chunk] | None = None) 
         system_prompt="SYS",
         max_turns=max_turns,
         top_k=5,
+        tools=tools,
     )
 
 
@@ -134,3 +147,59 @@ def test_stream_cut_in_the_middle_does_not_save_the_turn():
         list(service.handle_stream("s1", "¿Cuál es el plazo?"))
 
     assert service.store.get("s1") == []
+
+
+def test_the_model_asks_a_tool_and_answers_with_its_result():
+    model, tools = ToolCallingChatModel(FEES), FakeTools()
+    turn = make_service(model, tools=tools).handle("s1", "¿Qué comisiones me cobraron? Soy CUS-1001")
+
+    assert tools.executed == ["get_charged_fees"]
+    assert turn.tools == [ToolResult(call=FEES, status=ToolStatus.OK, content='{"result": [{"id": "FEE-4002", "refundable": true}]}')]
+    assert "FEE-4002" in turn.reply.answer
+    assert turn.usage.llm_calls == 2  # la vuelta que pidió la tool y la que respondió
+    first, second = model.received
+    assert {"role": "system", "content": TOOLS_HEADER} in first
+    assert roles(second)[-2:] == ["assistant", "tool"]  # el pedido del modelo y lo que respondió la tool
+    assert second[-2]["tool_calls"][0]["function"]["name"] == "get_charged_fees"
+
+
+def test_sensitive_actions_are_not_executed():
+    tools = FakeTools()
+    turn = make_service(ToolCallingChatModel(REFUND), tools=tools).handle("s1", "Devuélveme la comisión FEE-4002")
+
+    assert tools.executed == []
+    assert turn.tools[0].status == ToolStatus.PENDING_APPROVAL
+    assert "pendiente_aprobacion" in turn.tools[0].content
+
+
+def test_a_tool_that_does_not_exist_is_an_error_for_the_model():
+    tools = FakeTools()
+    unknown = ToolCall(id="call-3", name="delete_customer", arguments={})
+    turn = make_service(ToolCallingChatModel(unknown), tools=tools).handle("s1", "Borra mis datos")
+
+    assert tools.executed == []
+    assert turn.tools[0].status == ToolStatus.ERROR
+
+
+def test_without_tools_the_model_gets_no_tools_header():
+    model = RecordingChatModel()
+    make_service(model).handle("s1", "¿Cuál es el plazo?")
+    assert {"role": "system", "content": TOOLS_HEADER} not in model.calls[0]
+
+
+def test_stream_shows_each_tool_before_the_answer():
+    events = list(make_service(ToolCallingChatModel(FEES), tools=FakeTools()).handle_stream("s1", "¿Mis comisiones?"))
+
+    assert [type(event) for event in events[:3]] == [ToolCall, ToolResult, IntentDetected]
+    assert isinstance(events[3], AnswerDelta)
+    assert isinstance(events[-1], AgentTurn) and events[-1].tools[0].call == FEES
+
+
+def test_a_model_that_never_stops_asking_for_tools_is_cut():
+    model = ToolCallingChatModel(FEES, rounds=99)
+    service = make_service(model, tools=FakeTools())
+    with pytest.raises(AgentError) as error:
+        service.handle("s1", "¿Mis comisiones?")
+    assert error.value.kind == ErrorKind.INVALID_OUTPUT
+    assert len(model.received) == MAX_TOOL_ROUNDS
+    assert service.store.get("s1") == []  # un turno cortado no se guarda

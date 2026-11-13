@@ -14,6 +14,11 @@ from agent.domain.models import (
     ModelEvent,
     ModelResult,
     RewriteResult,
+    ToolCall,
+    ToolDefinition,
+    ToolRequest,
+    ToolResult,
+    ToolStatus,
     Usage,
 )
 
@@ -30,7 +35,7 @@ class FakeChatModel:
     def __init__(self, sources: list[int] | None = None) -> None:
         self.sources = sources or []  # los números de fragmento que "cita" en cada respuesta
 
-    def complete(self, messages: list[Message]) -> ModelResult:
+    def complete(self, messages: list[Message], tools: list[ToolDefinition] = ()) -> ModelResult | ToolRequest:
         text = messages[-1]["content"].lower()
         intent = next(
             (intent for intent, words in self.RULES if any(word in text for word in words)), Intent.OUT_OF_SCOPE
@@ -39,11 +44,12 @@ class FakeChatModel:
         usage = Usage(models=["fake"], llm_calls=1, prompt_tokens=10, completion_tokens=5)
         return ModelResult(reply=reply, usage=usage)
 
-    def stream(self, messages: list[Message]) -> Iterator[ModelEvent]:
-        result = self.complete(messages)
-        yield IntentDetected(intent=result.reply.intent)
-        for word in result.reply.answer.split(" "):  # una palabra por evento, como un modelo que va escribiendo
-            yield AnswerDelta(text=f"{word} ")
+    def stream(self, messages: list[Message], tools: list[ToolDefinition] = ()) -> Iterator[ModelEvent]:
+        result = self.complete(messages, tools)
+        if isinstance(result, ModelResult):
+            yield IntentDetected(intent=result.reply.intent)
+            for word in result.reply.answer.split(" "):  # una palabra por evento, como un modelo que va escribiendo
+                yield AnswerDelta(text=f"{word} ")
         yield result
 
     def rewrite(self, messages: list[Message]) -> RewriteResult:
@@ -57,9 +63,9 @@ class RecordingChatModel(FakeChatModel):
         self.calls: list[list[Message]] = []
         self.rewrites: list[list[Message]] = []
 
-    def complete(self, messages: list[Message]) -> ModelResult:
+    def complete(self, messages: list[Message], tools: list[ToolDefinition] = ()) -> ModelResult | ToolRequest:
         self.calls.append(messages)
-        return super().complete(messages)
+        return super().complete(messages, tools)
 
     def rewrite(self, messages: list[Message]) -> RewriteResult:
         self.rewrites.append(messages)
@@ -70,20 +76,58 @@ class FailingChatModel:
     def __init__(self, kind: ErrorKind) -> None:
         self.kind = kind
 
-    def complete(self, messages: list[Message]) -> ModelResult:
+    def complete(self, messages: list[Message], tools: list[ToolDefinition] = ()) -> ModelResult:
         raise AgentError(self.kind, "falla simulada")
 
-    def stream(self, messages: list[Message]) -> Iterator[ModelEvent]:
+    def stream(self, messages: list[Message], tools: list[ToolDefinition] = ()) -> Iterator[ModelEvent]:
         raise AgentError(self.kind, "falla simulada")
 
 
 class InterruptedChatModel(FakeChatModel):
     """Empieza a responder y se corta a la mitad, como una conexión que se cae."""
 
-    def stream(self, messages: list[Message]) -> Iterator[ModelEvent]:
+    def stream(self, messages: list[Message], tools: list[ToolDefinition] = ()) -> Iterator[ModelEvent]:
         yield IntentDetected(intent=Intent.PRODUCT_QUESTION)
         yield AnswerDelta(text="El plazo es ")
         raise AgentError(ErrorKind.UPSTREAM, "se cortó la respuesta")
+
+
+class ToolCallingChatModel(FakeChatModel):
+    """Pide las mismas tools durante `rounds` vueltas y después responde con el último resultado, como un modelo que consulta."""
+
+    def __init__(self, *calls: ToolCall, rounds: int = 1) -> None:
+        super().__init__()
+        self.tool_calls, self.rounds = list(calls), rounds
+        self.received: list[list[Message]] = []
+
+    def complete(self, messages: list[Message], tools: list[ToolDefinition] = ()) -> ModelResult | ToolRequest:
+        self.received.append(list(messages))
+        if len(self.received) <= self.rounds:
+            return ToolRequest(calls=self.tool_calls, usage=Usage(models=["fake"], llm_calls=1, prompt_tokens=20, completion_tokens=6))
+        reply = AgentReply(intent=Intent.DATA_QUERY, answer=f"[fake] la tool dijo: {messages[-1]['content']}", sources=[])
+        return ModelResult(reply=reply, usage=Usage(models=["fake"], llm_calls=1, prompt_tokens=30, completion_tokens=8))
+
+
+class FakeTools:
+    """Una consulta y una acción sensible del dominio fees. Anota qué tools se ejecutaron de verdad."""
+
+    DEFINITIONS = [
+        ToolDefinition(name="get_charged_fees", description="Comisiones cobradas al cliente.",
+                       parameters={"type": "object", "properties": {"customer_id": {"type": "string"}}}, sensitive=False),
+        ToolDefinition(name="request_fee_refund", description="Pide la devolución de una comisión.",
+                       parameters={"type": "object", "properties": {"fee_id": {"type": "string"}}}, sensitive=True),
+    ]
+
+    def __init__(self, definitions: list[ToolDefinition] | None = None) -> None:
+        self._definitions = self.DEFINITIONS if definitions is None else definitions
+        self.executed: list[str] = []
+
+    def definitions(self) -> list[ToolDefinition]:
+        return self._definitions
+
+    def call(self, call: ToolCall) -> ToolResult:
+        self.executed.append(call.name)
+        return ToolResult(call=call, status=ToolStatus.OK, content='{"result": [{"id": "FEE-4002", "refundable": true}]}')
 
 
 class FakeEmbedder:

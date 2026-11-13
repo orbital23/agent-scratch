@@ -3,7 +3,7 @@
 uv run python dev/chat.py            conversación: escribe tus mensajes; "nueva" empieza otra sesión, "salir" termina
 uv run python dev/chat.py "Hola"     un solo mensaje y termina
 
-La respuesta aparece mientras el agente la escribe (POST /chat/stream, Server-Sent Events).
+La respuesta aparece mientras el agente la escribe (POST /chat/stream, Server-Sent Events), y antes, cada tool que usa.
 AGENT_URL cambia la dirección del agente (por defecto http://127.0.0.1:8000).
 """
 
@@ -17,6 +17,7 @@ from collections.abc import Iterator
 from http.client import HTTPResponse
 
 URL = os.environ.get("AGENT_URL", "http://127.0.0.1:8000").rstrip("/") + "/chat/stream"
+TOOL_STATUS = {"ok": "resultado", "error": "error", "pending_approval": "NO SE EJECUTA, pendiente de aprobación"}
 
 
 def send(message: str, session_id: str | None) -> str | None:
@@ -36,6 +37,11 @@ def send(message: str, session_id: str | None) -> str | None:
     with response:
         for name, data in read_events(response):
             match name:
+                case "tool_call":
+                    arguments = ", ".join(f"{key}={value}" for key, value in data["arguments"].items())
+                    print(f"  → {data['name']}({arguments})", flush=True)
+                case "tool_result":
+                    print(f"    {TOOL_STATUS[data['status']]}: {data['content'][:160]}", flush=True)
                 case "intent":
                     print(f"  Agente [{data['intent']}]: ", end="", flush=True)
                 case "delta":
@@ -107,4 +113,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")
     main()
