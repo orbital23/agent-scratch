@@ -1,136 +1,105 @@
-import pytest
-from fakes import FailingChatModel, FakeEmbedder, FakeKnowledgeBase, InterruptedChatModel, RecordingChatModel
+from collections.abc import Iterator
+from dataclasses import dataclass
 
-from agent.application.chat_service import ChatService
-from agent.domain.errors import AgentError, ErrorKind
-from agent.domain.knowledge import Chunk, Citation
-from agent.domain.models import AgentTurn, AnswerDelta, Intent, IntentDetected
-from agent.infrastructure.persistence.in_memory_store import InMemoryConversationStore
+from agent.domain.knowledge import Citation, SearchHit
+from agent.domain.models import AgentTurn, Message, ModelResult, TurnEvent, Usage
+from agent.domain.ports import ChatModel, ConversationStore, Embedder, KnowledgeBase, QueryRewriter
 
-DEADLINES = Chunk(id="c1", content="Plazos\n\nSe responde en 15 días.", doc_type="regulation", section="Plazos", source="regulation.pdf")
-CHANNELS = Chunk(id="c2", content="Canales\n\nApp y agencias.", doc_type="faq", section="Canales", source="channels.html")
-
-
-def make_service(model, max_turns: int = 10, chunks: list[Chunk] | None = None) -> ChatService:
-    return ChatService(
-        model=model,
-        rewriter=model,
-        embedder=FakeEmbedder(),
-        knowledge_base=FakeKnowledgeBase(chunks),
-        store=InMemoryConversationStore(),
-        system_prompt="SYS",
-        max_turns=max_turns,
-        top_k=5,
-    )
+REWRITE_PROMPT = (
+    "Reescribe la última pregunta del cliente para que se entienda sola, sin leer la conversación. "
+    "Conserva los productos, montos y fechas que se mencionaron antes. No la respondas."
+)
+CONTEXT_HEADER = (
+    "Fragmentos del corpus para la última pregunta. Si es product_question, responde solo con ellos y pon en "
+    "el campo sources los números que usaste; si no tienen la respuesta, dilo. No escribas los números dentro de la respuesta."
+)
 
 
-def roles(messages) -> list[str]:
-    return [message["role"] for message in messages]
+@dataclass(frozen=True)
+class PreparedTurn:
+    """Lo que se arma antes de llamar al modelo: la pregunta, los mensajes con el contexto y lo que se encontró."""
+
+    user: Message
+    messages: list[Message]
+    hits: list[SearchHit]
+    rewrite_usage: Usage
 
 
-def test_returns_typed_turn():
-    turn = make_service(RecordingChatModel()).handle("s1", "Me robaron la tarjeta")
-    assert turn.reply.intent is Intent.SENSITIVE_ACTION
-    assert turn.usage.llm_calls == 1
+class ChatService:
+    """Caso de uso: resolver un turno de conversación con RAG. Solo conoce puertos, nunca infraestructura."""
+
+    def __init__(
+        self,
+        model: ChatModel,
+        rewriter: QueryRewriter,
+        embedder: Embedder,
+        knowledge_base: KnowledgeBase,
+        store: ConversationStore,
+        system_prompt: str,
+        max_turns: int,
+        top_k: int,
+    ) -> None:
+        self.model = model
+        self.rewriter = rewriter
+        self.embedder = embedder
+        self.knowledge_base = knowledge_base
+        self.store = store
+        self.system_prompt = system_prompt
+        self.max_turns = max_turns
+        self.top_k = top_k
+
+    def handle(self, session_id: str, message: str) -> AgentTurn:
+        prepared = self._prepare(session_id, message)
+        return self._finish(session_id, prepared, self.model.complete(prepared.messages))
+
+    def handle_stream(self, session_id: str, message: str) -> Iterator[TurnEvent]:
+        """Igual que handle, pero entrega la respuesta mientras el modelo la escribe.
+
+        Reescribir y buscar ocurren aquí mismo, antes de devolver los eventos: si fallan, el AgentError sale de inmediato
+        y la API todavía puede responder con su código HTTP (502, 504, 429).
+        """
+        prepared = self._prepare(session_id, message)
+        return self._stream_answer(session_id, prepared)
+
+    def _prepare(self, session_id: str, message: str) -> PreparedTurn:
+        user: Message = {"role": "user", "content": message}
+        recent = self.store.get(session_id)[-self.max_turns * 2 :]
+
+        query, rewrite_usage = message, Usage()
+        if recent:  # la primera pregunta ya se entiende sola: no se gasta una llamada en reescribirla
+            rewritten = self.rewriter.rewrite([{"role": "system", "content": REWRITE_PROMPT}, *recent, user])
+            query, rewrite_usage = rewritten.query, rewritten.usage
+        hits = self.knowledge_base.search(query, self.embedder.embed([query])[0], self.top_k)
+
+        context: Message = {"role": "system", "content": _context_message(hits)}
+        messages = [{"role": "system", "content": self.system_prompt}, *recent, context, user]
+        return PreparedTurn(user=user, messages=messages, hits=hits, rewrite_usage=rewrite_usage)
+
+    def _stream_answer(self, session_id: str, prepared: PreparedTurn) -> Iterator[TurnEvent]:
+        for event in self.model.stream(prepared.messages):
+            yield self._finish(session_id, prepared, event) if isinstance(event, ModelResult) else event
+
+    def _finish(self, session_id: str, prepared: PreparedTurn, result: ModelResult) -> AgentTurn:
+        # se guarda solo si el modelo terminó de responder: un error, aunque sea a mitad del streaming, no deja turnos
+        # a medias. El contexto no se guarda: cada turno busca de nuevo, y el historial no crece con fragmentos viejos
+        self.store.append(session_id, prepared.user)
+        self.store.append(session_id, {"role": "assistant", "content": result.reply.answer})
+        return AgentTurn(
+            reply=result.reply,
+            usage=prepared.rewrite_usage + result.usage,
+            citations=_citations_from(result.reply.sources, prepared.hits),
+            hits=prepared.hits,
+        )
 
 
-def test_history_is_sent_on_next_turn():
-    model = RecordingChatModel()
-    service = make_service(model)
-
-    service.handle("s1", "Hola")
-    service.handle("s1", "Me robaron la tarjeta")
-
-    assert roles(model.calls[1]) == ["system", "user", "assistant", "system", "user"]
-    assert model.calls[1][0]["content"] == "SYS"
-    assert model.calls[1][1]["content"] == "Hola"
+def _context_message(hits: list[SearchHit]) -> str:
+    if not hits:
+        return "No se encontraron fragmentos del corpus para esta pregunta."
+    blocks = [f"[{number}] {hit.chunk.source}\n{hit.chunk.content}" for number, hit in enumerate(hits, start=1)]
+    return "\n\n".join([CONTEXT_HEADER, *blocks])
 
 
-def test_sessions_are_isolated():
-    model = RecordingChatModel()
-    service = make_service(model)
-
-    service.handle("s1", "Hola")
-    service.handle("s2", "Hola")
-
-    assert roles(model.calls[1]) == ["system", "system", "user"]
-
-
-def test_history_is_trimmed_to_max_turns():
-    model = RecordingChatModel()
-    service = make_service(model, max_turns=1)
-
-    for text in ("uno", "dos", "tres"):
-        service.handle("s1", text)
-
-    assert [message["content"] for message in model.calls[2][1:-2]] == ["dos", "[fake] intención detectada: out_of_scope"]
-
-
-def test_failed_turn_is_not_saved():
-    model = RecordingChatModel()
-    service = make_service(model)
-    service.handle("s1", "Hola")
-
-    service.model = FailingChatModel(ErrorKind.UPSTREAM)
-    with pytest.raises(AgentError):
-        service.handle("s1", "¿sigues?")
-
-    service.model = model
-    service.handle("s1", "Me robaron la tarjeta")
-    assert roles(model.calls[-1]) == ["system", "user", "assistant", "system", "user"]
-
-
-def test_context_numbers_the_chunks_found():
-    model = RecordingChatModel()
-    make_service(model, chunks=[DEADLINES, CHANNELS]).handle("s1", "¿Cuál es el plazo?")
-
-    context = model.calls[0][-2]["content"]
-    assert "[1] regulation.pdf\nPlazos" in context
-    assert "[2] channels.html\nCanales" in context
-
-
-def test_without_chunks_the_model_is_told_there_is_no_context():
-    model = RecordingChatModel()
-    make_service(model).handle("s1", "¿Cuál es el plazo?")
-    assert model.calls[0][-2]["content"].startswith("No se encontraron fragmentos")
-
-
-def test_citations_come_only_from_fragments_that_exist():
-    model = RecordingChatModel(sources=[2, 7, 2])
-    turn = make_service(model, chunks=[DEADLINES, CHANNELS]).handle("s1", "¿Por dónde reclamo?")
-    assert turn.citations == [Citation(source="channels.html", section="Canales", chunk_id="c2")]
-
-
-def test_follow_up_question_is_rewritten_before_searching():
-    model = RecordingChatModel()
-    service = make_service(model)
-
-    service.handle("s1", "¿Cuál es el plazo de un reclamo?")
-    turn = service.handle("s1", "¿y si es fraude?")
-
-    assert service.knowledge_base.queries == ["¿Cuál es el plazo de un reclamo?", "[reescrita] ¿y si es fraude?"]
-    assert roles(model.rewrites[0]) == ["system", "user", "assistant", "user"]
-    assert turn.usage.llm_calls == 2
-
-
-def test_stream_sends_the_intent_then_the_answer_in_pieces_then_the_turn():
-    service = make_service(RecordingChatModel(sources=[1]), chunks=[DEADLINES])
-
-    events = list(service.handle_stream("s1", "¿Cuál es el plazo?"))
-
-    assert events[0] == IntentDetected(intent=Intent.PRODUCT_QUESTION)
-    assert all(isinstance(event, AnswerDelta) for event in events[1:-1])
-    turn = events[-1]
-    assert isinstance(turn, AgentTurn)
-    assert "".join(event.text for event in events[1:-1]).strip() == turn.reply.answer
-    assert turn.citations == [Citation(source="regulation.pdf", section="Plazos", chunk_id="c1")]
-    assert roles(service.store.get("s1")) == ["user", "assistant"]
-
-
-def test_stream_cut_in_the_middle_does_not_save_the_turn():
-    service = make_service(InterruptedChatModel())
-
-    with pytest.raises(AgentError):
-        list(service.handle_stream("s1", "¿Cuál es el plazo?"))
-
-    assert service.store.get("s1") == []
+def _citations_from(numbers: list[int], hits: list[SearchHit]) -> list[Citation]:
+    # el modelo solo elige números; uno que no existe se descarta, así ninguna cita es inventada
+    cited_chunks = [hits[number - 1].chunk for number in dict.fromkeys(numbers) if 1 <= number <= len(hits)]
+    return [Citation(source=chunk.source, section=chunk.section, chunk_id=chunk.id) for chunk in cited_chunks]

@@ -1,0 +1,1 @@
+{"id": "cards-AIE31SC", "type": "answerable", "history": [], "question": "¿Cuál es la TEA por disposición de efectivo de la Tarjeta Signature?", "expected_intent": "product_question", "expected_sources": ["signature-card-sheet.md"], "forbidden_sources": [], "key_facts": ["74.99 %"]}

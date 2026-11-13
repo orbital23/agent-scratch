@@ -10,9 +10,11 @@ from fastapi import FastAPI
 
 from agent.application.chat_service import ChatService
 from agent.domain.errors import AgentError
-from agent.domain.ports import Embedder, KnowledgeBase
+from agent.domain.ports import Embedder, Judge, KnowledgeBase
 from agent.infrastructure.api.routes import agent_error_handler, build_router
-from agent.infrastructure.config.settings import FoundrySettings, KnowledgeBaseKind, Settings
+from agent.infrastructure.config.settings import FoundrySettings, JudgeKind, KnowledgeBaseKind, Settings
+from agent.infrastructure.evaluation.decision_judge import DecisionJudge
+from agent.infrastructure.evaluation.geval_judge import GEvalJudge
 from agent.infrastructure.llm.credentials import build_credential
 from agent.infrastructure.llm.foundry_chat_model import FoundryChatModel
 from agent.infrastructure.llm.foundry_embedder import FoundryEmbedder
@@ -31,12 +33,12 @@ def _require_endpoint(foundry: FoundrySettings) -> None:
     log.info("Foundry auth provider: %s", foundry.auth_provider)
 
 
-def build_chat_model(foundry: FoundrySettings) -> FoundryChatModel:
+def build_chat_model(foundry: FoundrySettings, deployment: str | None = None) -> FoundryChatModel:
     _require_endpoint(foundry)
     return FoundryChatModel(
         endpoint=foundry.endpoint,
         credential=build_credential(foundry.auth_provider, foundry.api_key),
-        deployment=foundry.deployment,
+        deployment=deployment or foundry.deployment,
         timeout_s=foundry.timeout_s,
         max_retries=foundry.max_retries,
     )
@@ -78,15 +80,26 @@ def build_ready_knowledge_base(settings: Settings) -> KnowledgeBase:
     return knowledge_base
 
 
-def create_app(
+def build_judge(settings: Settings, kind: JudgeKind | None = None) -> Judge:
+    foundry = settings.foundry
+    match kind or settings.judge:
+        case JudgeKind.LOCAL:
+            return GEvalJudge(build_chat_model(foundry, foundry.judge_deployment))
+        case JudgeKind.AZURE_EVALUATION:
+            _require_endpoint(foundry)
+            credential = build_credential(foundry.auth_provider, foundry.api_key)
+            return DecisionJudge(foundry.endpoint, credential, foundry.decision_deployment, foundry.timeout_s)
+
+
+def build_chat_service(
+    settings: Settings,
     chat_model: FoundryChatModel | None = None,  # en los tests, un fake con complete y rewrite
-    settings: Settings | None = None,
     embedder: Embedder | None = None,
     knowledge_base: KnowledgeBase | None = None,
-) -> FastAPI:
-    settings = settings or Settings()
+) -> ChatService:
+    """El agente completo. Lo usan la API y la evaluación (uv run eval): se evalúa exactamente lo que se despliega."""
     model = chat_model or build_chat_model(settings.foundry)
-    chat_service = ChatService(
+    return ChatService(
         model=model,
         rewriter=model,  # el mismo modelo de chat reescribe las preguntas de seguimiento
         embedder=embedder or build_embedder(settings.foundry),
@@ -96,6 +109,16 @@ def create_app(
         max_turns=settings.max_turns,
         top_k=settings.search.top_k,
     )
+
+
+def create_app(
+    chat_model: FoundryChatModel | None = None,
+    settings: Settings | None = None,
+    embedder: Embedder | None = None,
+    knowledge_base: KnowledgeBase | None = None,
+) -> FastAPI:
+    settings = settings or Settings()
+    chat_service = build_chat_service(settings, chat_model, embedder, knowledge_base)
     app = FastAPI(title=f"agent-{settings.domain}")
     app.include_router(build_router(chat_service))
     app.add_exception_handler(AgentError, agent_error_handler)
