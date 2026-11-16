@@ -7,16 +7,40 @@ import logging
 
 from fastapi import FastAPI
 
+from agent.application.chat_service import ChatService
+from agent.domain.ports import ChatModel
 from agent.infrastructure.api.routes import build_router
-from agent.infrastructure.config.settings import Settings
+from agent.infrastructure.config.settings import FoundrySettings, Settings
+from agent.infrastructure.llm.credentials import build_credential
+from agent.infrastructure.llm.foundry_chat_model import FoundryChatModel
+from agent.infrastructure.persistence.in_memory_store import InMemoryConversationStore
+from agent.infrastructure.prompts.loader import load_prompt
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+log = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def build_chat_model(foundry: FoundrySettings) -> ChatModel:
+    if not foundry.endpoint:
+        raise RuntimeError("Falta FOUNDRY_ENDPOINT. Copia .env.example a .env y complétalo.")
+    log.info("Foundry auth provider: %s", foundry.auth_provider)
+    return FoundryChatModel(
+        endpoint=foundry.endpoint,
+        credential=build_credential(foundry.auth_provider, foundry.api_key),
+        deployment=foundry.deployment,
+        timeout_s=foundry.timeout_s,
+        max_retries=foundry.max_retries,
+    )
+
+
+def create_app(chat_model: ChatModel | None = None, settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
-    # TODO S1: crear FoundryChatModel (con build_credential), InMemoryConversationStore y el prompt
-    #          del dominio (load_prompt); armar ChatService y pasarlo a build_router.
+    chat_service = ChatService(
+        model=chat_model or build_chat_model(settings.foundry),
+        store=InMemoryConversationStore(),
+        system_prompt=load_prompt(settings.domain),
+        max_turns=settings.max_turns,
+    )
     app = FastAPI(title=f"agent-{settings.domain}")
-    app.include_router(build_router())
+    app.include_router(build_router(chat_service))
     return app

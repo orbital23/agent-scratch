@@ -1,6 +1,6 @@
 from openai import OpenAI
 
-from agent.domain.models import Message
+from agent.domain.models import AgentReply, Message
 from agent.infrastructure.llm.credentials import Credential
 
 
@@ -24,9 +24,15 @@ class FoundryChatModel:
         )
         self.deployment = deployment
 
-    def complete(self, messages: list[Message]):
-        # TODO S1: self.client.chat.completions.parse(model=..., messages=..., response_format=AgentReply)
-        #          y devolver message.parsed.
+    def complete(self, messages: list[Message]) -> AgentReply:
         # TODO S2: medir latencia y tokens; traducir timeout, 429, salida inválida y errores de Foundry
         #          a AgentError del dominio.
-        raise NotImplementedError("TODO S1: FoundryChatModel.complete")
+        completion = self.client.chat.completions.parse(
+            model=self.deployment,
+            messages=messages,
+            response_format=AgentReply,
+        )
+        message = completion.choices[0].message
+        if message.parsed is None:
+            raise RuntimeError(f"el modelo no devolvió el contrato: {message.refusal or 'vacío'}")
+        return message.parsed
