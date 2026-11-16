@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, Self
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
@@ -33,5 +33,34 @@ class AgentReply(BaseModel):
     )
 
 
-# TODO S2: Usage (modelos, llamadas, latencia, tokens; sumable), ModelResult (reply + usage)
-#          y AgentTurn (resultado de un turno: reply + usage).
+class Usage(BaseModel):
+    """Consumo de un turno. Es sumable porque desde T2 un turno hace varias llamadas al modelo."""
+
+    models: list[str] = []
+    llm_calls: int = 0
+    latency_ms: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+    def __add__(self, other: Self) -> Self:
+        return type(self)(
+            models=list(dict.fromkeys(self.models + other.models)),
+            llm_calls=self.llm_calls + other.llm_calls,
+            latency_ms=self.latency_ms + other.latency_ms,
+            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
+            completion_tokens=self.completion_tokens + other.completion_tokens,
+        )
+
+
+class ModelResult(BaseModel):
+    """Una llamada al modelo: respuesta tipada + consumo."""
+
+    reply: AgentReply
+    usage: Usage
+
+
+class AgentTurn(BaseModel):
+    """Resultado de un turno. T2 agrega citations; T3 tool_calls y pending_action."""
+
+    reply: AgentReply
+    usage: Usage

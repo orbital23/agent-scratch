@@ -2,7 +2,7 @@ import pytest
 from openai.lib._pydantic import to_strict_json_schema
 from pydantic import ValidationError
 
-from agent.domain.models import AgentReply, Intent
+from agent.domain.models import AgentReply, Intent, Usage
 
 
 def test_agent_reply_schema_is_strict():
@@ -27,3 +27,12 @@ def test_agent_reply_rejects_invalid_output(data):
 
 def test_agent_reply_strips_answer():
     assert AgentReply(intent=Intent.GREETING, answer="  Hola  ").answer == "Hola"
+
+
+def test_usage_adds_up():
+    total = Usage(models=["gpt-5-nano"], llm_calls=1, latency_ms=100, prompt_tokens=50, completion_tokens=5) + Usage(
+        models=["gpt-5-mini"], llm_calls=1, latency_ms=900, prompt_tokens=800, completion_tokens=120
+    )
+    assert total == Usage(
+        models=["gpt-5-nano", "gpt-5-mini"], llm_calls=2, latency_ms=1000, prompt_tokens=850, completion_tokens=125
+    )

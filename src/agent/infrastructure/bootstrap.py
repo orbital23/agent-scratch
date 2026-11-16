@@ -8,8 +8,9 @@ import logging
 from fastapi import FastAPI
 
 from agent.application.chat_service import ChatService
+from agent.domain.errors import AgentError
 from agent.domain.ports import ChatModel
-from agent.infrastructure.api.routes import build_router
+from agent.infrastructure.api.routes import agent_error_handler, build_router
 from agent.infrastructure.config.settings import FoundrySettings, Settings
 from agent.infrastructure.llm.credentials import build_credential
 from agent.infrastructure.llm.foundry_chat_model import FoundryChatModel
@@ -43,4 +44,5 @@ def create_app(chat_model: ChatModel | None = None, settings: Settings | None = 
     )
     app = FastAPI(title=f"agent-{settings.domain}")
     app.include_router(build_router(chat_service))
+    app.add_exception_handler(AgentError, agent_error_handler)
     return app
