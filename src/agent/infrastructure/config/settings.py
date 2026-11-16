@@ -64,6 +64,18 @@ class SearchSettings(_EnvSettings):
     top_k: int = Field(5, ge=1, le=20)
 
 
+class McpSettings(_EnvSettings):
+    """Variables MCP_*: el servidor de las tools del agente. El mock local o el compartido: solo cambia MCP_URL.
+
+    El agente le manda su DOMAIN y el MCP le muestra solo las tools de ese dominio. MCP_URL vacío: solo RAG, sin tools.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="MCP_")
+
+    url: str = "http://127.0.0.1:8200/mcp"  # el mock de dev/mcp; para el compartido, MCP_URL en el .env
+    scope: str = ""  # vacío con el mock; el compartido pide un token de Entra: api://<app del MCP>/.default
+
+
 class Settings(_EnvSettings):
     # cada tema agrega su bloque: T2 ingest y search, T3 mcp, T4 cosmos y otel
     domain: str = "fraud"
@@ -73,3 +85,4 @@ class Settings(_EnvSettings):
     foundry: FoundrySettings = Field(default_factory=FoundrySettings)
     ingest: IngestSettings = Field(default_factory=IngestSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
+    mcp: McpSettings = Field(default_factory=McpSettings)

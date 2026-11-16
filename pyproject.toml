@@ -7,6 +7,7 @@ dependencies = [
     "azure-identity>=1.26.0",
     "azure-search-documents>=12.0.0",
     "fastapi>=0.115",
+    "fastmcp>=4.1,<5",
     "jiter>=0.17.0",
     "openai>=3.35.1",
     "pydantic-settings>=2.16.0",
@@ -28,7 +29,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["tests"]
+pythonpath = ["tests", "dev/mcp"]
 
 [build-system]
 requires = ["uv_build>=0.8,<0.12"]

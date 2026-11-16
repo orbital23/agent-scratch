@@ -5,16 +5,37 @@ from typing import Protocol
 
 from agent.domain.evaluation import Verdict
 from agent.domain.knowledge import Chunk, Citation, SearchHit
-from agent.domain.models import Message, ModelEvent, ModelResult, RewriteResult
+from agent.domain.models import (
+    Message,
+    ModelEvent,
+    ModelResult,
+    RewriteResult,
+    ToolCall,
+    ToolDefinition,
+    ToolRequest,
+    ToolResult,
+)
 
 
 class ChatModel(Protocol):
     """Modelo de lenguaje. T1: Foundry directo; T3: Microsoft Agent Framework."""
 
-    def complete(self, messages: list[Message]) -> ModelResult: ...
+    def complete(self, messages: list[Message], tools: list[ToolDefinition]) -> ModelResult | ToolRequest:
+        """La respuesta tipada, o el pedido de tools si el modelo necesita datos antes de responder (S6)."""
+        ...
 
-    def stream(self, messages: list[Message]) -> Iterator[ModelEvent]:
-        """Igual que complete, pero entrega la respuesta mientras se escribe. El último evento es el ModelResult."""
+    def stream(self, messages: list[Message], tools: list[ToolDefinition]) -> Iterator[ModelEvent]:
+        """Igual que complete, pero entrega la respuesta mientras se escribe. El último evento es ModelResult o ToolRequest."""
+        ...
+
+
+class Tools(Protocol):
+    """Las tools del dominio. S6: un servidor MCP, el mock local o el compartido."""
+
+    def definitions(self) -> list[ToolDefinition]: ...
+
+    def call(self, call: ToolCall) -> ToolResult:
+        """Ejecuta la tool. Un error de negocio vuelve como ToolStatus.ERROR: también es información para el modelo."""
         ...
 
 
