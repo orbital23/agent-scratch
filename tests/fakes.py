@@ -3,7 +3,8 @@
 from collections.abc import Iterator
 
 from agent.domain.errors import AgentError, ErrorKind
-from agent.domain.knowledge import Chunk, SearchHit
+from agent.domain.evaluation import Verdict
+from agent.domain.knowledge import Chunk, Citation, SearchHit
 from agent.domain.models import (
     AgentReply,
     AnswerDelta,
@@ -112,3 +113,14 @@ class FakeKnowledgeBase:
     def search(self, text: str, vector: list[float], top_k: int) -> list[SearchHit]:
         self.queries.append(text)
         return [SearchHit(chunk=chunk, score=1.0) for chunk in self.chunks[:top_k]]
+
+
+class FakeJudge:
+    """Pone siempre la misma nota y anota qué preguntas calificó."""
+
+    def __init__(self) -> None:
+        self.questions: list[str] = []
+
+    def evaluate(self, question: str, fragments: list[SearchHit], answer: str, cited: list[Citation]) -> Verdict:
+        self.questions.append(question)
+        return Verdict(groundedness=4, relevance=5, citation_correct=1.0, judge="fake")

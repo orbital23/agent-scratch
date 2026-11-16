@@ -88,6 +88,7 @@ class ChatService:
             reply=result.reply,
             usage=prepared.rewrite_usage + result.usage,
             citations=_citations_from(result.reply.sources, prepared.hits),
+            hits=prepared.hits,
         )
 
 

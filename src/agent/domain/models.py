@@ -3,7 +3,7 @@ from typing import Annotated, Any, Self
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
-from agent.domain.knowledge import Citation
+from agent.domain.knowledge import Citation, SearchHit
 
 Message = dict[str, Any]  # formato OpenAI; T3 suma role "tool" sin cambiar el tipo
 
@@ -89,6 +89,7 @@ class AgentTurn(BaseModel):
     reply: AgentReply
     usage: Usage
     citations: list[Citation] = []
+    hits: list[SearchHit] = []  # lo que se recuperó: lo usan la evaluación y el juez; no sale en la API
 
 
 class IntentDetected(BaseModel):
