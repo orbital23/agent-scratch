@@ -18,6 +18,11 @@ class KnowledgeBaseKind(StrEnum):
     AZURE_SEARCH = "azure_search"  # el índice del equipo en Azure AI Search
 
 
+class JudgeKind(StrEnum):
+    LOCAL = "local"  # G-Eval con un modelo generativo de Foundry
+    AZURE_EVALUATION = "azure_evaluation"  # decision-1
+
+
 class _EnvSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore")
 
@@ -32,6 +37,8 @@ class FoundrySettings(_EnvSettings):
     api_key: SecretStr = SecretStr("")
     deployment: str = "gpt-5-mini"
     embedding_deployment: str = "text-embedding-3-small"
+    judge_deployment: str = "gpt-5-mini"  # juez G-Eval: conviene otro modelo, para que no se califique a sí mismo
+    decision_deployment: str = "decision-1"
     timeout_s: float = Field(30, gt=0)
     max_retries: int = Field(2, ge=0)
 
@@ -62,6 +69,7 @@ class Settings(_EnvSettings):
     domain: str = "fraud"
     max_turns: int = Field(10, ge=1)
     knowledge_base: KnowledgeBaseKind = KnowledgeBaseKind.LOCAL
+    judge: JudgeKind = JudgeKind.LOCAL
     foundry: FoundrySettings = Field(default_factory=FoundrySettings)
     ingest: IngestSettings = Field(default_factory=IngestSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)

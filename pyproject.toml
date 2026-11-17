@@ -18,6 +18,7 @@ dependencies = [
 
 [project.scripts]
 ingest = "agent.infrastructure.ingestion.cli:main"
+eval = "agent.infrastructure.evaluation.cli:main"
 
 [dependency-groups]
 dev = [
