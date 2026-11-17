@@ -60,7 +60,7 @@ class FoundryChatModel:
 
     def stream(self, messages: list[Message], tools: list[ToolDefinition]) -> Iterator[ModelEvent]:
         start = time.perf_counter()
-        intent_sent, answer_sent = False, ""
+        reply_stream = ReplyStream()
         with foundry_errors(), self.client.chat.completions.stream(
             model=self.deployment,
             messages=messages,
@@ -71,15 +71,7 @@ class FoundryChatModel:
             for event in stream:
                 if event.type != "content.delta":
                     continue
-                reply_so_far = partial_reply(event.snapshot)
-                # los campos llegan en el orden del schema: si ya empezó answer, intent está completo
-                if not intent_sent and "answer" in reply_so_far:
-                    yield IntentDetected(intent=reply_so_far["intent"])
-                    intent_sent = True
-                answer_so_far = reply_so_far.get("answer", "")
-                if len(answer_so_far) > len(answer_sent):
-                    yield AnswerDelta(text=answer_so_far[len(answer_sent) :])
-                    answer_sent = answer_so_far
+                yield from reply_stream.events(event.snapshot)
             completion = stream.get_final_completion()
         if tool_calls := completion.choices[0].message.tool_calls:  # pidió tools en vez de responder
             calls = [
@@ -124,6 +116,27 @@ class FoundryChatModel:
 def _as_function(tool: ToolDefinition) -> dict[str, Any]:
     """Una tool en el formato de Foundry: nombre, descripción y el JSON Schema de sus parámetros."""
     return {"type": "function", "function": {"name": tool.name, "description": tool.description, "parameters": tool.parameters}}
+
+
+class ReplyStream:
+    """El AgentReply a medio escribir, convertido en eventos: IntentDetected una vez y cada pedazo nuevo de answer.
+
+    Lo usan FoundryChatModel y AgentFrameworkRuntime: los dos reciben el JSON de AgentReply mientras el modelo lo escribe.
+    """
+
+    def __init__(self) -> None:
+        self.intent_sent, self.answer_sent = False, ""
+
+    def events(self, snapshot: str) -> Iterator[IntentDetected | AnswerDelta]:
+        reply_so_far = partial_reply(snapshot)
+        # los campos llegan en el orden del schema: si ya empezó answer, intent está completo
+        if not self.intent_sent and "answer" in reply_so_far:
+            yield IntentDetected(intent=reply_so_far["intent"])
+            self.intent_sent = True
+        answer_so_far = reply_so_far.get("answer", "")
+        if len(answer_so_far) > len(self.answer_sent):
+            yield AnswerDelta(text=answer_so_far[len(self.answer_sent) :])
+            self.answer_sent = answer_so_far
 
 
 def partial_reply(snapshot: str) -> dict[str, Any]:
