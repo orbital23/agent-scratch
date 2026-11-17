@@ -2,18 +2,28 @@ import json
 from uuid import UUID
 
 import pytest
-from fakes import FailingChatModel, FakeChatModel, FakeEmbedder, FakeKnowledgeBase, InterruptedChatModel
+from fakes import (
+    FailingChatModel,
+    FakeChatModel,
+    FakeEmbedder,
+    FakeKnowledgeBase,
+    FakeTools,
+    InterruptedChatModel,
+    ToolCallingChatModel,
+)
 from fastapi.testclient import TestClient
 
 from agent.domain.errors import ErrorKind
 from agent.domain.knowledge import Chunk
+from agent.domain.models import ToolCall
 from agent.infrastructure.bootstrap import create_app
 from agent.infrastructure.config.settings import FoundrySettings, Settings
 
 
-def make_client(chat_model, chunks: list[Chunk] | None = None) -> TestClient:
+def make_client(chat_model, chunks: list[Chunk] | None = None, tools: FakeTools | None = None) -> TestClient:
     settings = Settings(_env_file=None, foundry=FoundrySettings(_env_file=None, auth_provider="api_key"))
-    app = create_app(chat_model=chat_model, settings=settings, embedder=FakeEmbedder(), knowledge_base=FakeKnowledgeBase(chunks))
+    app = create_app(chat_model=chat_model, settings=settings, embedder=FakeEmbedder(),
+                     knowledge_base=FakeKnowledgeBase(chunks), tools=tools or FakeTools([]))
     return TestClient(app)
 
 
@@ -109,3 +119,23 @@ def test_chat_stream_sends_the_answer_in_pieces():
 def test_chat_stream_cut_in_the_middle_ends_with_an_error_event():
     events = read_events(make_client(InterruptedChatModel()).post("/chat/stream", json={"message": "¿Plazo?"}))
     assert events[-1] == ("error", {"error": "upstream", "detail": "se cortó la respuesta"})
+
+
+FEES = ToolCall(id="call-1", name="get_charged_fees", arguments={"customer_id": "CUS-1001"})
+
+
+def test_chat_returns_the_tools_it_used():
+    response = make_client(ToolCallingChatModel(FEES), tools=FakeTools()).post("/chat", json={"message": "¿Mis comisiones?"})
+    assert response.status_code == 200
+    assert response.json()["tools"][0]["call"]["name"] == "get_charged_fees"
+    assert response.json()["tools"][0]["status"] == "ok"
+
+
+def test_chat_stream_sends_each_tool_before_the_answer():
+    client = make_client(ToolCallingChatModel(FEES), tools=FakeTools())
+    events = read_events(client.post("/chat/stream", json={"message": "¿Mis comisiones?"}))
+
+    assert [name for name, _ in events[:4]] == ["start", "tool_call", "tool_result", "intent"]
+    assert events[1][1] == {"id": "call-1", "name": "get_charged_fees", "arguments": {"customer_id": "CUS-1001"}}
+    assert events[2][1]["status"] == "ok"
+    assert events[-1][0] == "end" and events[-1][1]["tools"][0]["status"] == "ok"
