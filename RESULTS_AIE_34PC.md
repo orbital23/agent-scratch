@@ -48,27 +48,57 @@ decision-1 no explica, pero es rápido y da probabilidades: sirve para frenar un
 G-Eval es más lento pero deja el `reasoning`, que sirve para entender por qué falló un caso.
 
 
+
+## Sesión 6 — Tools del MCP en el chat
+
+Dominio: `cards`. MCP: el mock (`http://127.0.0.1:8200/mcp`) y, si ya tienes `MCP_URL`, el compartido (`bank-mcp`).
+
+### Tools de tu dominio
+
+| MCP | Tools que lista `dev/mcp/mcp_tools.py` |
+|---|---|
+| Mock | get_cards, get_credit_line, request_credit_line_increase |
+| Compartido | get_cards, get_credit_line, request_credit_line_increase |
+
+### Conversación en `dev/chat.py` (paso 12)
+
+| Prueba | Mensaje | Tool pedida (`→`) | Qué pasó | Primer texto / respuesta completa (ms) |
+|---|---|---|---|---|
+| Consulta de tu dominio | Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000? | Soy CUS-1001, ¿cuales son mis tarjetas? | request_credit_line_increase | Pidio una aprobacion y tambien respondio a la pregunta | 32034/32341
+| Acción confirmada | Soy CUS-1001, ¿cuales son mis tarjetas? | get_cards | Encontro 1 tarjeta, Visa Clásica (CRD-2001), últimos 4 dígitos 4417 | 14273/14468 |
+| Sin tool que la resuelva | ¿Quiero obtener la tarjeta clasica que requisito tengo? |product_question | Respondio que para la Tarjeta Clásica: ser persona de 21 a 75 años, ingreso mínimo mensual desde S/ 1 200 | 13201/13341 |
+| Tool de otro dominio | Soy CUS-1001, me cobraron dos veces en el supermercado | No puedo tramitar reclamos ni ver movimientos desde aquí | out_of_scope | 25282/25554 |
+
+### ¿El modelo inventó algún dato cuando ninguna tool lo resolvía?
+
+No invento ningun dato.
+
+### Conclusión
+
+Se comprobó que con un servidor MCP compartido te permite consumir las distintas herramientas para cada domino que se tiene asignado.
+
+
+
 ## Sesión 7 — Skills, memoria de trabajo y Agent Framework
 
 Dominio: `cards`. La misma conversación con los dos runtimes (paso 7).
 
 | | `react` | `agent_framework` |
 |---|---|---|
-| Tools pedidas en la consulta | 6 | 6 |
-| La acción sensible quedó **NO SE EJECUTA** | _(anotar)_ | _(anotar)_ |
+| Tools pedidas en la consulta | 3 | 3 |
+| La acción sensible quedó **NO SE EJECUTA** | SI | SI  |
 | Pregunta de memoria respondida sin `→` | ¿Cuál era la línea máxima de mi tarjeta? | ¿Cuál era la línea máxima de mi tarjeta? |
 | Primer texto (ms) | 12197 ms | 23382 ms |
 | Respuesta completa (ms) | 12443 ms | 23719 ms |
-| Tokens (entrada / salida) | 1728 / 655 | 1891 / 2052 |
+| Tokens (entrada / salida) | 1728/655 | 1891/2052 |
 
 ### ¿La skill frenó la tool de otro dominio?
 
-Mensaje: _(anotar)_. Respuesta: _(anotar)_.
+Mensaje: "Bloquea mi tarjeta CRD-2001" (el bloqueo es una tool de cards) Respuesta: con los dos runtimes el agente no pidió ninguna tool y dijo que no puede bloquear tarjetas desde este canal; derivó al bloqueo en la app (24 horas) o al (01) 555-0200. El modelo no tiene esa tool: el MCP compartido filtra por dominio y la skill de support solo deja pasar find_branches, get_request_status y update_contact_details.
 
 ### Diferencias entre los dos runtimes
 
-tokens de entrada y salida
-
+El agent_framework demora mas vs react
 ### Conclusión
 
 El agent_framework tiene mas consumo de tokens
