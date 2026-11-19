@@ -86,4 +86,4 @@ def _server_sent_events(session_id: UUID, events: Iterator[TurnEvent]) -> Iterat
 
 def _event(name: str, data: dict) -> str:
     # formato Server-Sent Events: una línea "event:", una "data:" con JSON y una línea en blanco que lo cierra
-    return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+    return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n" 
