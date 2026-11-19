@@ -75,3 +75,28 @@ No invento ningun dato.
 ### Conclusión
 
 Se comprobó que con un servidor MCP compartido te permite consumir las distintas herramientas para cada domino que se tiene asignado.
+
+## Sesión 7 — Skills, memoria de trabajo y Agent Framework
+
+Dominio: `<dominio>`. La misma conversación con los dos runtimes (paso 7).
+
+| | `react` | `agent_framework` |
+|---|---|---|
+| Tools pedidas en la consulta | _(anotar)_ | _(anotar)_ |
+| La acción sensible quedó **NO SE EJECUTA** | _(anotar)_ | _(anotar)_ |
+| Pregunta de memoria respondida sin `→` | _(anotar)_ | _(anotar)_ |
+| Primer texto (ms) | _(anotar)_ | _(anotar)_ |
+| Respuesta completa (ms) | _(anotar)_ | _(anotar)_ |
+| Tokens (entrada / salida) | _(anotar)_ | _(anotar)_ |
+
+### ¿La skill frenó la tool de otro dominio?
+
+Mensaje: _(anotar)_. Respuesta: _(anotar)_.
+
+### Diferencias entre los dos runtimes
+
+_(anotar)_
+
+### Conclusión
+
+_(anotar)_
