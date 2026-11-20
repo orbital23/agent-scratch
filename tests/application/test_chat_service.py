@@ -10,9 +10,10 @@ from fakes import (
 )
 
 from agent.application.chat_service import MAX_TOOL_ROUNDS, TOOLS_HEADER, ChatService
+from agent.application.react_runtime import ReactRuntime
 from agent.domain.errors import AgentError, ErrorKind
 from agent.domain.knowledge import Chunk, Citation
-from agent.domain.models import AgentTurn, AnswerDelta, Intent, IntentDetected, ToolCall, ToolResult, ToolStatus
+from agent.domain.models import AgentTurn, AnswerDelta, Intent, IntentDetected, Skill, ToolCall, ToolResult, ToolStatus
 from agent.infrastructure.persistence.in_memory_store import InMemoryConversationStore
 
 DEADLINES = Chunk(id="c1", content="Plazos\n\nSe responde en 15 días.", doc_type="regulation", section="Plazos", source="regulation.pdf")
@@ -23,7 +24,10 @@ FEES = ToolCall(id="call-1", name="get_charged_fees", arguments={"customer_id": 
 REFUND = ToolCall(id="call-2", name="request_fee_refund", arguments={"fee_id": "FEE-4002", "reason": "cobro indebido"})
 
 
-def make_service(model, max_turns: int = 10, chunks: list[Chunk] | None = None, tools=None) -> ChatService:
+FEES_SKILL = Skill(name="fees", instructions="SKILL fees", tools=["get_charged_fees"], max_tool_rounds=2)
+
+
+def make_service(model, max_turns: int = 10, chunks: list[Chunk] | None = None, tools=None, skill=None) -> ChatService:
     return ChatService(
         model=model,
         rewriter=model,
@@ -34,6 +38,7 @@ def make_service(model, max_turns: int = 10, chunks: list[Chunk] | None = None, 
         max_turns=max_turns,
         top_k=5,
         tools=tools,
+        skill=skill,
     )
 
 
@@ -84,11 +89,11 @@ def test_failed_turn_is_not_saved():
     service = make_service(model)
     service.handle("s1", "Hola")
 
-    service.model = FailingChatModel(ErrorKind.UPSTREAM)
+    service.runtime = ReactRuntime(FailingChatModel(ErrorKind.UPSTREAM))
     with pytest.raises(AgentError):
         service.handle("s1", "¿sigues?")
 
-    service.model = model
+    service.runtime = ReactRuntime(model)
     service.handle("s1", "Me robaron la tarjeta")
     assert roles(model.calls[-1]) == ["system", "user", "assistant", "system", "user"]
 
@@ -203,3 +208,44 @@ def test_a_model_that_never_stops_asking_for_tools_is_cut():
     assert error.value.kind == ErrorKind.INVALID_OUTPUT
     assert len(model.received) == MAX_TOOL_ROUNDS
     assert service.store.get("s1") == []  # un turno cortado no se guarda
+
+
+def test_skill_decides_which_tools_the_model_sees_and_adds_its_instructions():
+    model = ToolCallingChatModel(REFUND)
+    tools = FakeTools()
+    turn = make_service(model, tools=tools, skill=FEES_SKILL).handle("s1", "Devuélvanme la FEE-4002")
+
+    assert [tool.name for tool in model.offered[0]] == ["get_charged_fees"]
+    assert "SKILL fees" in [message["content"] for message in model.received[0]]
+    # el modelo pidió una tool fuera de la skill: no se ejecuta, aunque el MCP sí la muestre
+    assert turn.tools[0].status is ToolStatus.ERROR
+    assert tools.executed == []
+
+
+def test_skill_sets_how_many_tool_rounds_the_model_gets():
+    model = ToolCallingChatModel(FEES, rounds=FEES_SKILL.max_tool_rounds)
+    with pytest.raises(AgentError) as error:
+        make_service(model, tools=FakeTools(), skill=FEES_SKILL).handle("s1", "¿Qué me cobraron? Soy CUS-1001")
+    assert error.value.kind is ErrorKind.INVALID_OUTPUT
+    assert len(model.received) == FEES_SKILL.max_tool_rounds
+
+
+def test_tool_data_is_remembered_for_the_next_turn():
+    model = ToolCallingChatModel(FEES)
+    service = make_service(model, tools=FakeTools())
+    service.handle("s1", "¿Qué comisiones me cobraron? Soy CUS-1001")
+    service.handle("s1", "Pide la devolución de esa")
+
+    next_turn = model.received[-1]
+    assert roles(next_turn) == ["system", "system", "user", "system", "assistant", "system", "user"]
+    memory = next_turn[3]["content"]
+    assert 'get_charged_fees({"customer_id": "CUS-1001"}) → ok' in memory
+    assert "FEE-4002" in memory
+
+
+def test_turn_without_tools_leaves_no_tool_memory():
+    model = RecordingChatModel()
+    service = make_service(model, tools=FakeTools())
+    service.handle("s1", "Hola")
+    service.handle("s1", "Gracias")
+    assert roles(model.calls[-1]) == ["system", "system", "user", "assistant", "system", "user"]

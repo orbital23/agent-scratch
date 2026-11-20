@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Agente conversacional bancario en capas domain / application / infrastructure"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "agent-framework-core==1.24.0",
+    "agent-framework-openai==1.18.0",
     "azure-identity>=1.26.0",
     "azure-search-documents>=12.0.0",
     "fastapi>=0.115",

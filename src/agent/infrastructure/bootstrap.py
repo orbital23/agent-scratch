@@ -11,11 +11,19 @@ from fastapi import FastAPI
 
 from agent.application.chat_service import ChatService
 from agent.domain.errors import AgentError
-from agent.domain.ports import Embedder, Judge, KnowledgeBase, Tools
+from agent.domain.ports import AgentRuntime, Embedder, Judge, KnowledgeBase, Tools
 from agent.infrastructure.api.routes import agent_error_handler, build_router
-from agent.infrastructure.config.settings import FoundrySettings, JudgeKind, KnowledgeBaseKind, McpSettings, Settings
+from agent.infrastructure.config.settings import (
+    AgentRuntimeKind,
+    FoundrySettings,
+    JudgeKind,
+    KnowledgeBaseKind,
+    McpSettings,
+    Settings,
+)
 from agent.infrastructure.evaluation.decision_judge import DecisionJudge
 from agent.infrastructure.evaluation.geval_judge import GEvalJudge
+from agent.infrastructure.llm.agent_framework_runtime import AgentFrameworkRuntime
 from agent.infrastructure.llm.credentials import build_credential
 from agent.infrastructure.llm.foundry_chat_model import FoundryChatModel
 from agent.infrastructure.llm.foundry_embedder import FoundryEmbedder
@@ -24,6 +32,7 @@ from agent.infrastructure.persistence.in_memory_store import InMemoryConversatio
 from agent.infrastructure.prompts.loader import load_prompt
 from agent.infrastructure.search.azure_search_knowledge_base import AzureSearchKnowledgeBase
 from agent.infrastructure.search.qdrant_knowledge_base import QdrantKnowledgeBase
+from agent.infrastructure.skills.loader import load_skill
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -117,6 +126,22 @@ def build_judge(settings: Settings, kind: JudgeKind | None = None) -> Judge:
             return DecisionJudge(foundry.endpoint, credential, foundry.decision_deployment, foundry.timeout_s)
 
 
+def build_runtime(settings: Settings) -> AgentRuntime | None:
+    """Quién conduce el turno, según AGENT_RUNTIME. None: el ciclo ReAct propio, que ChatService arma sobre el modelo."""
+    log.info("Agent runtime: %s", settings.agent_runtime)
+    if settings.agent_runtime is AgentRuntimeKind.REACT:
+        return None
+    foundry = settings.foundry
+    _require_endpoint(foundry)
+    return AgentFrameworkRuntime(
+        endpoint=foundry.endpoint,
+        credential=build_credential(foundry.auth_provider, foundry.api_key),
+        deployment=foundry.deployment,
+        timeout_s=foundry.timeout_s,
+        max_retries=foundry.max_retries,
+    )
+
+
 def build_chat_service(
     settings: Settings,
     chat_model: FoundryChatModel | None = None,  # en los tests, un fake con complete y rewrite
@@ -136,6 +161,8 @@ def build_chat_service(
         max_turns=settings.max_turns,
         top_k=settings.search.top_k,
         tools=tools or build_tools(settings.mcp, settings.domain),
+        skill=load_skill(settings.domain),
+        runtime=None if chat_model else build_runtime(settings),  # con un modelo inyectado (tests), siempre ReAct
     )
 
 
