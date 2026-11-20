@@ -8,10 +8,10 @@ Mismo golden set (31 casos), mismo agente (`gpt-5-mini`), dos jueces.
 
 | Métrica | G-Eval (`JUDGE=local`) | decision-1 (`azure_evaluation`) |
 |---|---|---|
-| Apoyo (1–5) | 5.00 | 4.99 |
-| Relevancia (1–5) | 5.00 | 4.95 |
+| Apoyo (1–5) | 4.89 | 4.69 |
+| Relevancia (1–5) | 4.89 | 4.69 |
 | Cita correcta (0–1) | 1.00 | 0.999 |
-| Tokens (entrada / salida) | 30 891 / 12 720 | 30 886 / 13 500 |
+| Tokens (entrada / salida) | 30 791 / 12 620 | 30 786 / 13 499 |
 | Tiempo de la corrida | 6 min 14 s | 5 min 19 s |
 
 ### ¿Las notas de apoyo y de cita correcta van en la misma dirección?
@@ -25,7 +25,7 @@ Ningún caso queda en direcciones opuestas.
 - Local (G-Eval): 6 min 14 s. Es lento porque los casos se recorren en serie (agente y juez, una llamada
   tras otra) y el juez es un modelo de razonamiento (`gpt-5-mini`) que genera `reasoning` antes de las notas.
   Cada llamada del juez tardó unos 4 s.
-- azure_evaluation (decision-1): 3 s.
+- azure_evaluation (decision-1): 5 min 19s.
 
 ### Casos donde no coinciden
 
