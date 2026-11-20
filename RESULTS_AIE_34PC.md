@@ -1,5 +1,3 @@
-# Resultados AIE-31SC
-
 ## Sesión 5 — Comparar los dos jueces
 
 Mismo golden set (31 casos), mismo agente (`gpt-5-mini`), dos jueces.
@@ -9,11 +7,11 @@ Mismo golden set (31 casos), mismo agente (`gpt-5-mini`), dos jueces.
 
 | Métrica | G-Eval (`JUDGE=local`) | decision-1 (`azure_evaluation`) |
 |---|---|---|
-| Apoyo (1–5) | 5.00 | 4.99 |
-| Relevancia (1–5) | 5.00 | 4.95 |
+| Apoyo (1–5) | 4.89 | 4.69 |
+| Relevancia (1–5) | 4.89 | 4.69 |
 | Cita correcta (0–1) | 1.00 | 0.999 |
-| Tokens (entrada / salida) | 30 891 / 12 720 | 30 886 / 13 500 |
-| Tiempo de la corrida | 6 min 14 s | - |
+| Tokens (entrada / salida) | 30 791 / 12 620 | 30 786 / 13 499 |
+| Tiempo de la corrida | 6 min 14 s | 5 min 19 s |
 
 ### ¿Las notas de apoyo y de cita correcta van en la misma dirección?
 
@@ -26,7 +24,7 @@ Ningún caso queda en direcciones opuestas.
 - Local (G-Eval): 6 min 14 s. Es lento porque los casos se recorren en serie (agente y juez, una llamada
   tras otra) y el juez es un modelo de razonamiento (`gpt-5-mini`) que genera `reasoning` antes de las notas.
   Cada llamada del juez tardó unos 4 s.
-- azure_evaluation (decision-1): -.
+- azure_evaluation (decision-1): 5 min 19s.
 
 ### Casos donde no coinciden
 
@@ -47,3 +45,33 @@ El agente respondió distinto entre corridas (el modelo no es determinista):
 
 decision-1 no explica, pero es rápido y da probabilidades: sirve para frenar un despliegue (sesión 11).
 G-Eval es más lento pero deja el `reasoning`, que sirve para entender por qué falló un caso.
+
+
+
+## Sesión 6 — Tools del MCP en el chat
+
+Dominio: `cards`. MCP: el mock (`http://127.0.0.1:8200/mcp`) y, si ya tienes `MCP_URL`, el compartido (`bank-mcp`).
+
+### Tools de tu dominio
+
+| MCP | Tools que lista `dev/mcp/mcp_tools.py` |
+|---|---|
+| Mock | get_cards, get_credit_line, request_credit_line_increase |
+| Compartido | get_cards, get_credit_line, request_credit_line_increase |
+
+### Conversación en `dev/chat.py` (paso 12)
+
+| Prueba | Mensaje | Tool pedida (`→`) | Qué pasó | Primer texto / respuesta completa (ms) |
+|---|---|---|---|---|
+| Consulta de tu dominio | Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000? | Soy CUS-1001, ¿cuales son mis tarjetas? | request_credit_line_increase | Pidio una aprobacion y tambien respondio a la pregunta | 32034/32341
+| Acción confirmada | Soy CUS-1001, ¿cuales son mis tarjetas? | get_cards | Encontro 1 tarjeta, Visa Clásica (CRD-2001), últimos 4 dígitos 4417 | 14273/14468 |
+| Sin tool que la resuelva | ¿Quiero obtener la tarjeta clasica que requisito tengo? |product_question | Respondio que para la Tarjeta Clásica: ser persona de 21 a 75 años, ingreso mínimo mensual desde S/ 1 200 | 13201/13341 |
+| Tool de otro dominio | Soy CUS-1001, me cobraron dos veces en el supermercado | No puedo tramitar reclamos ni ver movimientos desde aquí | out_of_scope | 25282/25554 |
+
+### ¿El modelo inventó algún dato cuando ninguna tool lo resolvía?
+
+No invento ningun dato.
+
+### Conclusión
+
+Se comprobó que con un servidor MCP compartido te permite consumir las distintas herramientas para cada domino que se tiene asignado.
