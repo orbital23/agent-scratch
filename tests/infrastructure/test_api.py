@@ -1,5 +1,5 @@
 import json
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fakes import (
@@ -141,3 +141,38 @@ def test_chat_stream_sends_each_tool_before_the_answer():
     assert events[1][1] == {"id": "call-1", "name": "get_charged_fees", "arguments": {"customer_id": "CUS-1001"}}
     assert events[2][1]["status"] == "ok"
     assert events[-1][0] == "end" and events[-1][1]["tools"][0]["status"] == "ok"
+
+
+REFUND = ToolCall(id="call-2", name="request_fee_refund", arguments={"fee_id": "FEE-4002", "reason": "cobro indebido"})
+
+
+def test_the_advisor_approves_the_pending_action():
+    tools = FakeTools()
+    client = make_client(ToolCallingChatModel(REFUND), tools=tools)
+    first = client.post("/chat", json={"message": "Devuélveme la comisión FEE-4002"}).json()
+    assert first["pending_action"]["name"] == "request_fee_refund"
+    assert tools.executed == []
+
+    decision = {"session_id": first["session_id"], "action_id": first["pending_action"]["id"], "decision": "approve"}
+    response = client.post("/chat/actions", json=decision)
+
+    assert response.status_code == 200
+    assert response.json()["tools"][0]["status"] == "ok"
+    assert response.json()["pending_action"] is None
+    assert tools.executed == ["request_fee_refund"]
+
+
+def test_the_stream_ends_with_the_pending_action():
+    client = make_client(ToolCallingChatModel(REFUND), tools=FakeTools())
+    with client.stream("POST", "/chat/stream", json={"message": "Devuélveme la comisión FEE-4002"}) as response:
+        response.read()
+        events = read_events(response)
+    assert events[-1][0] == "end" and events[-1][1]["pending_action"]["id"] == REFUND.id
+
+
+def test_deciding_an_action_that_is_not_pending_is_404():
+    decision = {"session_id": str(uuid4()), "action_id": "call-x", "decision": "reject"}
+    response = make_client(FakeChatModel(), tools=FakeTools()).post("/chat/actions", json=decision)
+
+    assert response.status_code == 404
+    assert response.json()["error"] == "not_found"

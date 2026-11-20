@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from agent.application.chat_service import ChatService
 from agent.domain.errors import AgentError, ErrorKind
 from agent.domain.models import AgentTurn, AnswerDelta, IntentDetected, ToolCall, ToolResult, TurnEvent
-from agent.infrastructure.api.schemas import ChatRequest, ChatResponse, ErrorResponse
+from agent.infrastructure.api.schemas import ActionDecision, ChatRequest, ChatResponse, ErrorResponse
 
 log = logging.getLogger(__name__)
 
@@ -18,6 +18,7 @@ ERROR_STATUS = {
     ErrorKind.RATE_LIMIT: 429,
     ErrorKind.INVALID_OUTPUT: 502,
     ErrorKind.UPSTREAM: 502,
+    ErrorKind.NOT_FOUND: 404,
 }
 ERROR_RESPONSES = {status: {"model": ErrorResponse} for status in set(ERROR_STATUS.values())}
 
@@ -49,6 +50,12 @@ def build_router(chat_service: ChatService) -> APIRouter:
         events = chat_service.handle_stream(str(session_id), chat_request.message)
         return StreamingResponse(_server_sent_events(session_id, events), media_type="text/event-stream")
 
+    @router.post("/chat/actions", responses=ERROR_RESPONSES)
+    def decide(action: ActionDecision) -> ChatResponse:
+        """S8: el asesor aprueba o rechaza la acción sensible pendiente. 404 si la sesión no tiene una con ese id."""
+        turn = chat_service.resolve(str(action.session_id), action.action_id, action.decision)
+        return _chat_response(action.session_id, turn)
+
     return router
 
 
@@ -60,6 +67,7 @@ def _chat_response(session_id: UUID, turn: AgentTurn) -> ChatResponse:
         usage=turn.usage,
         citations=turn.citations,
         tools=turn.tools,
+        pending_action=turn.pending_action,
     )
 
 

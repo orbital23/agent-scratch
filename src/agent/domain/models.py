@@ -103,8 +103,14 @@ class ToolCall(BaseModel):
 class ToolStatus(StrEnum):
     OK = "ok"
     ERROR = "error"  # la tool respondió con un error de negocio, o no existe
-    PENDING_APPROVAL = "pending_approval"  # acción sensible: no se ejecutó
+    PENDING_APPROVAL = "pending_approval"  # acción sensible: espera la decisión del asesor, no se ejecutó
+    REJECTED = "rejected"  # S8: el asesor rechazó la acción sensible, no se ejecutó
 
+class Decision(StrEnum):
+    """Lo que decide el asesor sobre una acción sensible pendiente (S8)."""
+
+    APPROVE = "approve"
+    REJECT = "reject"
 
 class ToolResult(BaseModel):
     """Qué pasó con una tool pedida. content vuelve al modelo como observación."""
@@ -122,12 +128,13 @@ class ToolRequest(BaseModel):
 
 
 class AgentTurn(BaseModel):
-    """Resultado de un turno, con las fuentes que citó y las tools que usó. S8 agrega pending_action."""
+    """Resultado de un turno, con las fuentes que citó, las tools que usó y la acción que espera al asesor."""
 
     reply: AgentReply
     usage: Usage
     citations: list[Citation] = []
     tools: list[ToolResult] = []
+    pending_action: ToolCall | None = None  # S8: la acción sensible que pidió el modelo y espera al asesor
     hits: list[SearchHit] = []  # lo que se recuperó: lo usan la evaluación y el juez; no sale en la API
 
 

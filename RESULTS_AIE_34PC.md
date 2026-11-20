@@ -102,3 +102,42 @@ El agent_framework demora mas vs react
 ### Conclusión
 
 El agent_framework tiene mas consumo de tokens
+
+
+
+## Sesión 8 — Aprobación humana, validación y reintentos
+
+Dominio: `cards` (paso 6).
+
+| Caso | Runtime | Mensaje | Qué pasó | Resultado o ID |
+|---|---|---|---|---|
+| Aprobar | `agent_framework` | Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000? | Me mostro informacion de mi tarjeta, luego se mando la solicitud con el motivo y se aprobo | La solicitud de aumento a S/4000 para la tarjeta CRD-2001 fue registrada (ID CLI-9001) para que el banco lo procese; no se aplico el aumento.
+| Rechazar | `react` | Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000? | Me mostro informacion de mi tarjeta, luego se mando la solicitud con el motivo y se rechazo | Su solicitud de aumento a S/4000 fue rechazada por el asesor; la accion no se ejecuto |
+| Error de negocio (`CUS-9999`) | `react` | Soy CUS-9999, ¿que comisiones me cobraron? | _Respondio que el cliente CUS-9999 no existe | No se encuentra el codigo de cliente CUS-9999 en el sistema |
+| Input inválido | `agent_framework` | Mi numero de cliente es ABCD, ¿que comisiones me cobraron? | El modelo no llamó a la tool: leyó el patrón ^CUS-\d{4}$ y pidió confirmar "¿Su código de cliente es ABCD?" | Sin →; no salió nada al MCP
+
+### La trayectoria en el log
+
+trayectoria 83c9d031-0d7a-4c8d-ae25-457cd6c04aff: get_cards error → respuesta sensitive_action
+
+trayectoria 83c9d031-0d7a-4c8d-ae25-457cd6c04aff: get_credit_line ok → request_credit_line_increase pending_approval → respuesta sensitive_action
+
+trayectoria 83c9d031-0d7a-4c8d-ae25-457cd6c04aff: decision del asesor → request_credit_line_increase ok
+
+trayectoria 9051b7b9-b20e-4f6d-9551-21364da2f700: get_cards ok → get_credit_line ok → respuesta sensitive_action
+
+trayectoria 9051b7b9-b20e-4f6d-9551-21364da2f700: request_credit_line_increase pending_approval → respuesta sensitive
+
+trayectoria 9051b7b9-b20e-4f6d-9551-21364da2f700: get_cards ok → get_credit_line ok → request_credit_line_increase pending_approval → respuesta sensitive_action
+
+trayectoria 9051b7b9-b20e-4f6d-9551-3rtruftr7500: get_cards error → respuesta data_query
+
+trayectoria 83c9d031-0d7a-4c8d-ae25-3rtruftr400: get_cards ok → respuesta data_query
+
+### ¿Algo se ejecutó sin que lo aprobaras?
+
+No. Con los dos runtimes, get_credit_line siempre apareció primero como NO SE EJECUTA, pendiente de aprobación, y su resultado del MCP salió solo después. Cuando no llego al MCP: quedó rejected en la trayectoria y en la memoria.
+
+### Conclusión
+
+La aprobación humana vive en _run y resolve, no en el framework: funcionó igual con agent_framework y react, se tomo el action_id de cada uno, y esto sirvió para decidir por POST /chat/actions. Después de aprobar, el modelo contó solo lo que dijo el resultado ("quedó para que el banco la procese; no está aplicada aún"), luego el asesor reviso cada caso para aprobar o rechazar segun corresponda.

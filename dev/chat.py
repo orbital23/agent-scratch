@@ -4,6 +4,7 @@ uv run python dev/chat.py            conversación: escribe tus mensajes; "nueva
 uv run python dev/chat.py "Hola"     un solo mensaje y termina
 
 La respuesta aparece mientras el agente la escribe (POST /chat/stream, Server-Sent Events), y antes, cada tool que usa.
+Si el agente deja una acción sensible pendiente, la consola te pregunta como asesor si la apruebas (POST /chat/actions).
 AGENT_URL cambia la dirección del agente (por defecto http://127.0.0.1:8000).
 """
 
@@ -16,8 +17,10 @@ import urllib.request
 from collections.abc import Iterator
 from http.client import HTTPResponse
 
-URL = os.environ.get("AGENT_URL", "http://127.0.0.1:8000").rstrip("/") + "/chat/stream"
-TOOL_STATUS = {"ok": "resultado", "error": "error", "pending_approval": "NO SE EJECUTA, pendiente de aprobación"}
+AGENT_URL = os.environ.get("AGENT_URL", "http://127.0.0.1:8000").rstrip("/")
+URL = AGENT_URL + "/chat/stream"
+TOOL_STATUS = {"ok": "resultado", "error": "error", "pending_approval": "NO SE EJECUTA, pendiente de aprobación",
+               "rejected": "rechazada por el asesor"}
 
 
 def send(message: str, session_id: str | None) -> str | None:
@@ -41,7 +44,7 @@ def send(message: str, session_id: str | None) -> str | None:
                     arguments = ", ".join(f"{key}={value}" for key, value in data["arguments"].items())
                     print(f"  → {data['name']}({arguments})", flush=True)
                 case "tool_result":
-                    print(f"    {TOOL_STATUS[data['status']]}: {data['content'][:160]}", flush=True)
+                    show_tool(data["status"], data["content"])
                 case "intent":
                     print(f"  Agente [{data['intent']}]: ", end="", flush=True)
                 case "delta":
@@ -50,11 +53,35 @@ def send(message: str, session_id: str | None) -> str | None:
                 case "end":
                     print()
                     show_end(data, first_text_ms, milliseconds_since(sent_at))
+                    if action := data.get("pending_action"):
+                        decide(data["session_id"], action)
                     return data["session_id"]
                 case "error":
                     print()
                     show_error(200, data)
     return None
+
+
+def decide(session_id: str, action: dict) -> None:
+    """Haces de asesor: apruebas o rechazas la acción sensible, y el agente le cuenta al cliente qué pasó."""
+    arguments = ", ".join(f"{key}={value}" for key, value in action["arguments"].items())
+    answer = input(f"  Asesor: ¿apruebas {action['name']}({arguments})? [s/n]: ").strip().lower()
+    decision = "approve" if answer in ("s", "si", "sí") else "reject"
+    body = json.dumps({"session_id": session_id, "action_id": action["id"], "decision": decision}).encode("utf-8")
+    request = urllib.request.Request(AGENT_URL + "/chat/actions", data=body, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            reply = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        show_error(error.code, json.loads(error.read().decode("utf-8")))
+        return
+    for tool in reply["tools"]:
+        show_tool(tool["status"], tool["content"])
+    print(f"  Agente [{reply['intent']}]: {reply['answer']}")
+
+
+def show_tool(status: str, content: str) -> None:
+    print(f"    {TOOL_STATUS[status]}: {content[:160]}", flush=True)
 
 
 def read_events(response: HTTPResponse) -> Iterator[tuple[str, dict]]:
