@@ -103,8 +103,14 @@ class ToolCall(BaseModel):
 class ToolStatus(StrEnum):
     OK = "ok"
     ERROR = "error"  # la tool respondió con un error de negocio, o no existe
-    PENDING_APPROVAL = "pending_approval"  # acción sensible: no se ejecutó
+    PENDING_APPROVAL = "pending_approval"  # acción sensible: espera la decisión del asesor, no se ejecutó
+    REJECTED = "rejected"  # S8: el asesor rechazó la acción sensible, no se ejecutó
 
+class Decision(StrEnum):
+    """Lo que decide el asesor sobre una acción sensible pendiente (S8)."""
+
+    APPROVE = "approve"
+    REJECT = "reject"
 
 class ToolResult(BaseModel):
     """Qué pasó con una tool pedida. content vuelve al modelo como observación."""
@@ -122,12 +128,13 @@ class ToolRequest(BaseModel):
 
 
 class AgentTurn(BaseModel):
-    """Resultado de un turno, con las fuentes que citó y las tools que usó. S8 agrega pending_action."""
+    """Resultado de un turno, con las fuentes que citó, las tools que usó y la acción que espera al asesor."""
 
     reply: AgentReply
     usage: Usage
     citations: list[Citation] = []
     tools: list[ToolResult] = []
+    pending_action: ToolCall | None = None  # S8: la acción sensible que pidió el modelo y espera al asesor
     hits: list[SearchHit] = []  # lo que se recuperó: lo usan la evaluación y el juez; no sale en la API
 
 
@@ -145,5 +152,18 @@ class AnswerDelta(BaseModel):
 
 # lo que entrega ChatModel.stream; el último es ModelResult (respondió) o ToolRequest (pidió tools)
 type ModelEvent = IntentDetected | AnswerDelta | ModelResult | ToolRequest
+
+class Skill(BaseModel):
+    """Cómo trabaja el agente en su dominio (S7): instrucciones, las tools que puede usar y cuándo debe parar."""
+
+    name: str
+    instructions: str
+    tools: list[str]  # lista blanca: además del dominio que filtra el MCP, la skill decide qué tools ve el modelo
+    max_tool_rounds: int = Field(ge=1)  # criterio de terminación: vueltas de tools sin responder antes de cortar
+
+
+# lo que entrega AgentRuntime.run: los eventos del modelo y de cada tool; el último es ModelResult, con el consumo total
+type RuntimeEvent = IntentDetected | AnswerDelta | ToolCall | ToolResult | ModelResult
+
 # lo que entrega ChatService.handle_stream: cada tool pedida y su resultado, después la respuesta; el último es AgentTurn
 type TurnEvent = IntentDetected | AnswerDelta | ToolCall | ToolResult | AgentTurn
