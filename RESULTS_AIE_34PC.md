@@ -93,7 +93,7 @@ Dominio: `cards`. La misma conversación con los dos runtimes (paso 7).
 
 ### ¿La skill frenó la tool de otro dominio?
 
-Mensaje: "Bloquea mi tarjeta CRD-2001" (el bloqueo es una tool de cards) Respuesta: con los dos runtimes el agente no pidió ninguna tool y dijo que no puede bloquear tarjetas desde este canal; derivó al bloqueo en la app (24 horas) o al (01) 555-0200. El modelo no tiene esa tool: el MCP compartido filtra por dominio y la skill de support solo deja pasar find_branches, get_request_status y update_contact_details.
+Mensaje: "Quiero que bloquees mi tarjeta CRD-2001". Respuesta: con los dos runtimes el agente no pidió ninguna tool y dijo que no puede bloquear tarjetas desde este canal; derivó al bloqueo en la app (24 horas) o al (01) 555-0200.
 
 ### Diferencias entre los dos runtimes
 
