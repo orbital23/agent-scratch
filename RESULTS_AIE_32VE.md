@@ -18,20 +18,16 @@ Mismo golden set (31 casos), mismo agente (`gpt-5-mini`), dos jueces.
 ### ¿Las notas de apoyo y de cita correcta van en la misma dirección?
 
 Sí. G-Eval puso 5/5/1.0 en todos los casos juzgados. decision-1 puso prácticamente lo mismo, con
-probabilidades un poco por debajo del tope (por ejemplo 4.88 de apoyo en `cards-20` y 4.95 en `cards-30`).
-Ningún caso queda en direcciones opuestas.
+probabilidades un poco por debajo del tope. Ningún caso queda en direcciones opuestas.
 
 ### ¿Cuánto tardó cada corrida?
 
-- Local (G-Eval): 6 min 36 s. Es lento porque los casos se recorren en serie (agente y juez, una llamada
-  tras otra) y el juez es un modelo de razonamiento (`gpt-5-mini`) que genera `reasoning` antes de las notas.
-  Cada llamada del juez tardó unos 4 s.
-- azure_evaluation (decision-1): 3 s.
+- Local (G-Eval): 6 min 36 s. 
+- azure_evaluation (decision-1): 5 min 40 s.
 
 ### Casos donde no coinciden
 
-No hay casos con desacuerdo real entre los jueces: las diferencias son de centésimas, así que no hay un `reasoning` de G-Eval que explique una divergencia. Los dos casos con apoyo más bajo en decision-1
-(`cards-20` 4.88, `cards-30` 4.95) G-Eval los calificó con 5.
+No hay casos con desacuerdo real entre los jueces: las diferencias son de centésimas, así que no hay un `reasoning` de G-Eval que explique una divergencia.
 
 ### Diferencias de la corrida local que no vienen del juez
 
@@ -70,7 +66,7 @@ Dominio: `cards`. MCP: el mock (`http://127.0.0.1:8200/mcp`) y, si ya tienes `MC
 
 ### ¿El modelo inventó algún dato cuando ninguna tool lo resolvía?
 
-No invento ningun dato.
+No invento ningun dato, toda la informacion me lo trajo de los documentos.
 
 ### Conclusión
 
@@ -84,7 +80,7 @@ Dominio: `cards`. La misma conversación con los dos runtimes (paso 7).
 | | `react` | `agent_framework` |
 |---|---|---|
 | Tools pedidas en la consulta | get_cards, get_credit_line | get_cards, get_credit_line |
-| La acción sensible quedó **NO SE EJECUTA** | - | - |
+| La acción sensible quedó **NO SE EJECUTA** | SI | SI |
 | Pregunta de memoria respondida sin `→` | ¿Cuál era la línea máxima de mi tarjeta? | ¿Cuál era la línea máxima de mi tarjeta? |
 | Primer texto (ms) | 20052 | 26324 |
 | Respuesta completa (ms) | 20350 | 26588 |
@@ -96,8 +92,8 @@ Mensaje:¿Qué movimientos estaban duplicados?. Respuesta: Agente [out_of_scope]
 
 ### Diferencias entre los dos runtimes
 
-Agent-framework demora mucho mas que la react
+React es mucho mas rapido que Agent-framework, ya que react es un custom a diferencia de agent-framework.
 
 ### Conclusión
 
-El agent_framework tiene menos consumo de tokens
+El agent_framework tiene menos consumo de tokens segun lo explorado en las pruebas realizadas
