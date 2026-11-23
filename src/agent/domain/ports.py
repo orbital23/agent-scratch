@@ -65,12 +65,15 @@ class QueryRewriter(Protocol):
 
 
 class ConversationStore(Protocol):
-    """Historial por sesión. T1: memoria; T4: Cosmos DB."""
+    """Historial por sesión y la acción sensible que espera al asesor (S8). T1: memoria; T4: Cosmos DB."""
 
     def get(self, session_id: str) -> list[Message]: ...
     def append(self, session_id: str, message: Message) -> None: ...
-
-
+    def pending(self, session_id: str) -> ToolCall | None: ...
+    def set_pending(self, session_id: str, call: ToolCall | None) -> None:
+        """Guarda la acción que espera al asesor; None la quita. Hay a lo más una por sesión."""
+        ...
+        
 class Embedder(Protocol):
     """Texto → vector. T2: Foundry text-embedding-3-small."""
 

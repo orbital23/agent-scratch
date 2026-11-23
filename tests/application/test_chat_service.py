@@ -4,16 +4,28 @@ from fakes import (
     FakeEmbedder,
     FakeKnowledgeBase,
     FakeTools,
+    FlakyTools,
     InterruptedChatModel,
     RecordingChatModel,
     ToolCallingChatModel,
 )
 
-from agent.application.chat_service import MAX_TOOL_ROUNDS, TOOLS_HEADER, ChatService
+from agent.application import chat_service
+from agent.application.chat_service import DECISION_HEADER, MAX_TOOL_ROUNDS, TOOLS_HEADER, ChatService
 from agent.application.react_runtime import ReactRuntime
 from agent.domain.errors import AgentError, ErrorKind
 from agent.domain.knowledge import Chunk, Citation
-from agent.domain.models import AgentTurn, AnswerDelta, Intent, IntentDetected, Skill, ToolCall, ToolResult, ToolStatus
+from agent.domain.models import (
+    AgentTurn,
+    AnswerDelta,
+    Decision,
+    Intent,
+    IntentDetected,
+    Skill,
+    ToolCall,
+    ToolResult,
+    ToolStatus,
+)
 from agent.infrastructure.persistence.in_memory_store import InMemoryConversationStore
 
 DEADLINES = Chunk(id="c1", content="Plazos\n\nSe responde en 15 días.", doc_type="regulation", section="Plazos", source="regulation.pdf")
@@ -249,3 +261,119 @@ def test_turn_without_tools_leaves_no_tool_memory():
     service.handle("s1", "Hola")
     service.handle("s1", "Gracias")
     assert roles(model.calls[-1]) == ["system", "system", "user", "assistant", "system", "user"]
+
+
+# S8: control humano. Una acción sensible espera al asesor; una consulta que falla se reintenta; un input inválido no sale.
+
+
+@pytest.fixture(autouse=True)
+def no_retry_wait(monkeypatch):
+    monkeypatch.setattr(chat_service, "TOOL_RETRY_DELAY_S", 0)
+
+
+def test_a_sensitive_action_waits_for_the_advisor():
+    tools = FakeTools()
+    service = make_service(ToolCallingChatModel(REFUND), tools=tools)
+    turn = service.handle("s1", "Devuélveme la comisión FEE-4002")
+
+    assert tools.executed == []
+    assert turn.pending_action == REFUND
+    assert service.store.pending("s1") == REFUND
+    assert REFUND.id in turn.tools[0].content  # el modelo sabe qué acción quedó esperando
+
+
+def test_an_approved_action_runs_once_and_the_model_tells_the_customer():
+    model, tools = ToolCallingChatModel(REFUND), FakeTools()
+    service = make_service(model, tools=tools)
+    service.handle("s1", "Devuélveme la comisión FEE-4002")
+    turn = service.resolve("s1", REFUND.id, Decision.APPROVE)
+
+    assert tools.executed == ["request_fee_refund"]
+    assert turn.tools[0].status is ToolStatus.OK and turn.pending_action is None
+    assert model.offered[-1] == []  # para contar lo que pasó, el modelo ya no puede pedir tools
+    assert model.received[-1][-1] == {"role": "system", "content": DECISION_HEADER}
+    with pytest.raises(AgentError) as error:  # la misma decisión dos veces no ejecuta la acción dos veces
+        service.resolve("s1", REFUND.id, Decision.APPROVE)
+    assert error.value.kind is ErrorKind.NOT_FOUND
+    assert tools.executed == ["request_fee_refund"]
+
+
+def test_a_rejected_action_is_not_executed_and_is_remembered():
+    tools = FakeTools()
+    service = make_service(ToolCallingChatModel(REFUND), tools=tools)
+    service.handle("s1", "Devuélveme la comisión FEE-4002")
+    turn = service.resolve("s1", REFUND.id, Decision.REJECT)
+
+    assert tools.executed == []
+    assert turn.tools[0].status is ToolStatus.REJECTED
+    memory = service.store.get("s1")[-2]["content"]
+    assert "request_fee_refund" in memory and "→ rejected" in memory
+    assert service.store.pending("s1") is None
+
+
+def test_a_decision_without_that_pending_action_is_not_found():
+    service = make_service(ToolCallingChatModel(REFUND), tools=FakeTools())
+    with pytest.raises(AgentError) as error:
+        service.resolve("s1", REFUND.id, Decision.APPROVE)
+    assert error.value.kind is ErrorKind.NOT_FOUND
+
+    service.handle("s1", "Devuélveme la comisión FEE-4002")
+    with pytest.raises(AgentError):
+        service.resolve("s1", "call-otro", Decision.APPROVE)
+    assert service.store.pending("s1") == REFUND  # un id equivocado no borra la que sí espera
+
+
+def test_only_one_sensitive_action_waits_at_a_time():
+    service = make_service(ToolCallingChatModel(REFUND), tools=FakeTools())
+    earlier = ToolCall(id="call-0", name="request_fee_refund", arguments={"fee_id": "FEE-4001"})
+    service.store.set_pending("s1", earlier)
+    turn = service.handle("s1", "Devuélveme también la FEE-4002")
+
+    assert turn.tools[0].status is ToolStatus.ERROR
+    assert turn.pending_action is None
+    assert service.store.pending("s1") == earlier
+
+
+def test_a_cut_turn_leaves_no_pending_action():
+    service = make_service(ToolCallingChatModel(REFUND, rounds=99), tools=FakeTools())
+    with pytest.raises(AgentError):
+        service.handle("s1", "Devuélveme la comisión FEE-4002")
+    assert service.store.pending("s1") is None
+
+
+def test_invalid_arguments_never_reach_the_mcp():
+    tools = FakeTools()
+    wrong = ToolCall(id="call-4", name="get_charged_fees", arguments={"customer_id": 1001})
+    turn = make_service(ToolCallingChatModel(wrong), tools=tools).handle("s1", "¿Mis comisiones? Soy 1001")
+
+    assert tools.executed == []
+    assert turn.tools[0].status is ToolStatus.ERROR
+    assert "Argumentos inválidos" in turn.tools[0].content
+
+
+def test_a_query_that_fails_once_is_retried():
+    tools = FlakyTools(failures=1)
+    turn = make_service(ToolCallingChatModel(FEES), tools=tools).handle("s1", "¿Mis comisiones? Soy CUS-1001")
+
+    assert tools.attempts == 2
+    assert turn.tools[0].status is ToolStatus.OK
+
+
+def test_a_query_that_keeps_failing_is_an_error_and_the_turn_goes_on():
+    tools = FlakyTools(failures=5)
+    turn = make_service(ToolCallingChatModel(FEES), tools=tools).handle("s1", "¿Mis comisiones? Soy CUS-1001")
+
+    assert tools.attempts == 1 + chat_service.TOOL_RETRIES
+    assert turn.tools[0].status is ToolStatus.ERROR
+    assert "no respondió" in turn.tools[0].content
+
+
+def test_an_approved_action_is_never_retried():
+    tools = FlakyTools(failures=1)
+    service = make_service(ToolCallingChatModel(REFUND), tools=tools)
+    service.handle("s1", "Devuélveme la comisión FEE-4002")
+    turn = service.resolve("s1", REFUND.id, Decision.APPROVE)
+
+    assert tools.attempts == 1  # reintentar podría pedir la devolución dos veces
+    assert turn.tools[0].status is ToolStatus.ERROR
+    assert "no hay confirmación" in turn.tools[0].content  # el modelo no la vuelve a pedir
