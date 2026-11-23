@@ -18,20 +18,16 @@ Mismo golden set (31 casos), mismo agente (`gpt-5-mini`), dos jueces.
 ### ¿Las notas de apoyo y de cita correcta van en la misma dirección?
 
 Sí. G-Eval puso 5/5/1.0 en todos los casos juzgados. decision-1 puso prácticamente lo mismo, con
-probabilidades un poco por debajo del tope (por ejemplo 4.88 de apoyo en `cards-20` y 4.95 en `cards-30`).
-Ningún caso queda en direcciones opuestas.
+probabilidades un poco por debajo del tope. Ningún caso queda en direcciones opuestas.
 
 ### ¿Cuánto tardó cada corrida?
 
-- Local (G-Eval): 6 min 36 s. Es lento porque los casos se recorren en serie (agente y juez, una llamada
-  tras otra) y el juez es un modelo de razonamiento (`gpt-5-mini`) que genera `reasoning` antes de las notas.
-  Cada llamada del juez tardó unos 4 s.
-- azure_evaluation (decision-1): 3 s.
+- Local (G-Eval): 6 min 36 s. 
+- azure_evaluation (decision-1): 5 min 40 s.
 
 ### Casos donde no coinciden
 
-No hay casos con desacuerdo real entre los jueces: las diferencias son de centésimas, así que no hay un `reasoning` de G-Eval que explique una divergencia. Los dos casos con apoyo más bajo en decision-1
-(`cards-20` 4.88, `cards-30` 4.95) G-Eval los calificó con 5.
+No hay casos con desacuerdo real entre los jueces: las diferencias son de centésimas, así que no hay un `reasoning` de G-Eval que explique una divergencia.
 
 ### Diferencias de la corrida local que no vienen del juez
 
