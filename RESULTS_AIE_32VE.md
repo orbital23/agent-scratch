@@ -97,3 +97,33 @@ React es mucho mas rapido que Agent-framework, ya que react es un custom a difer
 ### Conclusión
 
 El agent_framework tiene menos consumo de tokens segun lo explorado en las pruebas realizadas
+
+## Sesión 8 — Aprobación humana, validación y reintentos
+
+Dominio: `cards` (paso 6).
+
+| Caso | Runtime | Mensaje | Qué pasó | Resultado o ID |
+|---|---|---|---|---|
+| Aprobar | `agent_framework` | Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000? | Me mostro la informacion de mi tarjeta, luego le mande la solicitud con el motivo y al final lo aprobé | La solicitud de aumento a S/4,000 para la tarjeta terminada en 2001 fue registrada (ID CLI-9001) para que el banco la procese; no se aplicó la nueva línea. |
+| Rechazar | `react` | Soy CUS-1001, ¿puedo subir la línea de mi tarjeta CRD-2001 a 4000? | Me mostro la informacion de mi tarjeta, luego le mande la solicitud con el motivo y al final lo rechaze | Su solicitud de aumento a S/4000 fue rechazada por el asesor; la acción no se ejecutó. |
+| Error de negocio (`CUS-9999`) | `react` | Soy CUS-9999, ¿qué comisiones me cobraron? | Respondio que el cliente CUS-9999 no existe | No encuentro el código de cliente CUS-9999 en nuestro sistema. |
+| Input inválido | `agent_framework` | Mi número de cliente es ABCD, ¿qué comisiones me cobraron? | No se ejecuto la tool de solo ejecuto un data_query | El código de cliente que enviaste (ACBD) no es válido. |
+
+### La trayectoria en el log
+
+- trayectoria 4cbab062-612d-40df-bb14-578b4420ea07: get_cards error → respuesta sensitive_action |
+- trayectoria 4cbab062-612d-40df-bb14-578b4420ea07: get_credit_line ok → request_credit_line_increase pending_approval → respuesta sensitive_action
+- trayectoria 4cbab062-612d-40df-bb14-578b4420ea07: decisión del asesor → request_credit_line_increase ok
+- trayectoria 8e4f6a79-1766-4c9b-b640-9af481a81152: get_cards ok → get_credit_line ok → respuesta sensitive_action
+- trayectoria 8e4f6a79-1766-4c9b-b640-9af481a81152: request_credit_line_increase pending_approval → respuesta sensitive_action
+- trayectoria 8e4f6a79-1766-4c9b-b640-9af481a81152: decisión del asesor → request_credit_line_increase rejected
+- trayectoria 732862ae-d791-4bac-a07e-c4e56c4452a4: get_cards error → respuesta data_query
+- trayectoria ac68dd32-00be-4e56-b7e1-5abfa8f17ce5: sin tools → respuesta data_query
+
+### ¿Algo se ejecutó sin que lo aprobaras?
+
+No, esperaba que el asesor aprobara la solicitud.
+
+### Conclusión
+
+Funciono correctamente con agent_framework y react, funciono de acuerdo a lo planteado en el laboratorio
