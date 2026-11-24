@@ -71,3 +71,29 @@ No invento ningun dato, toda la informacion me lo trajo de los documentos.
 ### Conclusión
 
 Se comprobó que con un servidor MCP compartido te permite consumir las distintas herramientas para cada domino que se tiene asignado.
+
+
+## Sesión 7 — Skills, memoria de trabajo y Agent Framework
+
+Dominio: `cards`. La misma conversación con los dos runtimes (paso 7).
+
+| | `react` | `agent_framework` |
+|---|---|---|
+| Tools pedidas en la consulta | get_cards, get_credit_line | get_cards, get_credit_line |
+| La acción sensible quedó **NO SE EJECUTA** | SI | SI |
+| Pregunta de memoria respondida sin `→` | ¿Cuál era la línea máxima de mi tarjeta? | ¿Cuál era la línea máxima de mi tarjeta? |
+| Primer texto (ms) | 20052 | 26324 |
+| Respuesta completa (ms) | 20350 | 26588 |
+| Tokens (entrada / salida) | 5284/1699 | 3433/2333 |
+
+### ¿La skill frenó la tool de otro dominio?
+
+Mensaje:¿Qué movimientos estaban duplicados?. Respuesta: Agente [out_of_scope]: Eso está fuera de mi alcance: no puedo ver ni investigar movimientos...
+
+### Diferencias entre los dos runtimes
+
+React es mucho mas rapido que Agent-framework, ya que react es un custom a diferencia de agent-framework.
+
+### Conclusión
+
+El agent_framework tiene menos consumo de tokens segun lo explorado en las pruebas realizadas
