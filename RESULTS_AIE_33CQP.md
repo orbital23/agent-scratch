@@ -57,3 +57,35 @@ No. En ambos runtimes (`agent_framework` y `react`), `request_credit_line_increa
 ### Conclusión
 
 El control humano (HITL), la validación de argumentos por JSON Schema y el manejo de errores/reintentos viven en `ChatService` (`_run`, `_call` y `resolve`), por lo que funcionan de forma idéntica con `agent_framework` y `react`. Una acción sensible nunca se reintenta al aprobarse para evitar duplicados, los fallos transitorios de consulta se reintentan una vez sin tumbar el turno con 502, y la línea `trayectoria` deja trazabilidad clara de cada turno en el log.
+
+## Sesión 9 — Despliegue en Azure
+
+Equipo: `team-02`. Dominio: `cards`.
+
+| Comprobación | Resultado |
+|---|---|
+| Tests en el contenedor (paso 3) | `139 passed, 5 skipped in 9.02s` (`agent:test`) |
+| Acción aprobada después de reiniciar `uvicorn` (paso 2, Cosmos DB) | `CLI-9001` (`status: "registered"`, sesión `a543105a-c802-40ed-b283-cf0d1f10b95f`, `action_id`: `call-b74d61e9`; `Cosmos doc`: `messages: 8`, `pending: None`) |
+| Imagen desplegada (`team-NN/agent:<sha>`) | `team-02/agent:1bf5cd2d959c54a1d6d87b785a140d9c954bf1c7` |
+| Revisión activa y duración del job `deploy` | `ca-agent-chat-02--0000002` (`RunningAtMaxScale`; confirmar duración exacta en GitHub Actions) |
+| `/health` del agente desplegado | `Agente en ca-agent-chat-02: ok` (HTTP 401 sin token Entra ID; `ok` con token de `az login`) |
+| Respuesta con `Fuentes:` contra Azure (y su tiempo en ms) | `7873 ms` (primer texto en `7742 ms`, `1413` in / `625` out); fuentes: `[1] credit-line-increase.md · Aumento de línea de crédito > Requisitos`, `[2] credit-line-increase.md · Aumento de línea de crédito > Cómo se solicita` |
+| Acción aprobada contra Azure, con su `resultado:` | `CLI-9001` (`"status": "registered"`, `action_id`: `call-4fe1c4f1`, `request_credit_line_increase(card_id=CRD-2001, requested_limit=4000)`) |
+
+### Comprobación imagen runtime local (paso 4)
+
+- `agent:local` (`DOMAIN=cards`) arrancó con `FOUNDRY_AUTH_PROVIDER=entra_id` (copiando `AZURE_OPENAI_ENDPOINT` a `FOUNDRY_ENDPOINT`) y se detuvo en el fail-fast esperado: `RuntimeError: KNOWLEDGE_BASE=azure_search requiere SEARCH_ENDPOINT y SEARCH_INDEX en .env.`
+
+### Qué pone Azure y qué pone la imagen
+
+- **La imagen (`Dockerfile`):** `DOMAIN`, `FOUNDRY_AUTH_PROVIDER=entra_id`, `KNOWLEDGE_BASE=azure_search`, `AGENT_RUNTIME=agent_framework`.
+- **Azure (Container App `ca-agent-chat-02`):** `APPLICATIONINSIGHTS_CONNECTION_STRING`, `AZURE_CLIENT_ID`, `AZURE_OPENAI_ENDPOINT`, `COSMOS_CONTAINER`, `COSMOS_DATABASE`, `COSMOS_ENDPOINT`, `FOUNDRY_PROJECT_ENDPOINT`, `KEY_VAULT_URI`, `MCP_SCOPE`, `MCP_URL`, `SEARCH_ENDPOINT`, `SEARCH_INDEX`, `TEAM_ID`.
+
+### Problemas que encontraste y cómo los resolviste
+
+- El primer intento del job `deploy` falló en `azure/login@v2` con `AADSTS700213` (*No matching federated identity record*) por discrepancia en el *subject claim* de OIDC; plataforma actualizó la credencial federada del repo y el re-run completó el despliegue.
+- `az containerapp auth show` devolvió `{}` por permisos sobre `authConfigs`, por lo que se consultó el `appId` de `app-workshop-agent-chat` en Entra ID para armar `AGENT_SCOPE` y autenticar `/health`, `/chat/stream` y `/chat/actions`.
+
+### Conclusión
+
+El agente del equipo (`team-02`, dominio `cards`) quedó desplegado en Azure Container Apps (`ca-agent-chat-02--0000002`) usando identidad administrada (`id-team-02`) sin secretos en el repositorio ni API keys. Tanto la consulta RAG sobre `idx-team-02` como el flujo HITL con `request_credit_line_increase` en el MCP compartido y la persistencia en Cosmos DB (`workshop/team-02`) funcionaron de extremo a extremo.
