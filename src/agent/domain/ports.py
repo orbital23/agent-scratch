@@ -1,6 +1,6 @@
 """Puertos: lo que el dominio necesita del mundo exterior. Las implementaciones viven en infrastructure."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Protocol
 
 from agent.domain.evaluation import Verdict
@@ -10,6 +10,7 @@ from agent.domain.models import (
     ModelEvent,
     ModelResult,
     RewriteResult,
+    RuntimeEvent,
     ToolCall,
     ToolDefinition,
     ToolRequest,
@@ -26,6 +27,24 @@ class ChatModel(Protocol):
 
     def stream(self, messages: list[Message], tools: list[ToolDefinition]) -> Iterator[ModelEvent]:
         """Igual que complete, pero entrega la respuesta mientras se escribe. El último evento es ModelResult o ToolRequest."""
+        ...
+
+
+class AgentRuntime(Protocol):
+    """Quién conduce el turno: llama al modelo, ejecuta cada tool que pide con run_tool y sigue hasta que responde.
+
+    S6: el ciclo ReAct propio sobre ChatModel. S7: Microsoft Agent Framework. Las reglas no viajan al runtime: qué tools
+    ve el modelo, cuántas vueltas puede dar y qué pasa con una acción sensible las decide ChatService.
+    """
+
+    def run(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition],
+        run_tool: Callable[[ToolCall], ToolResult],
+        max_rounds: int,
+    ) -> Iterator[RuntimeEvent]:
+        """Si el modelo pide tools max_rounds veces seguidas sin responder, AgentError INVALID_OUTPUT."""
         ...
 
 
@@ -46,11 +65,14 @@ class QueryRewriter(Protocol):
 
 
 class ConversationStore(Protocol):
-    """Historial por sesión. T1: memoria; T4: Cosmos DB."""
+    """Historial por sesión y la acción sensible que espera al asesor (S8). T1: memoria; T4: Cosmos DB."""
 
     def get(self, session_id: str) -> list[Message]: ...
     def append(self, session_id: str, message: Message) -> None: ...
-
+    def pending(self, session_id: str) -> ToolCall | None: ...
+    def set_pending(self, session_id: str, call: ToolCall | None) -> None:
+        """Guarda la acción que espera al asesor; None la quita. Hay a lo más una por sesión."""
+        ...
 
 class Embedder(Protocol):
     """Texto → vector. T2: Foundry text-embedding-3-small."""

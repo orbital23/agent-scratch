@@ -23,6 +23,11 @@ class JudgeKind(StrEnum):
     AZURE_EVALUATION = "azure_evaluation"  # decision-1
 
 
+class AgentRuntimeKind(StrEnum):
+    REACT = "react"  # el ciclo ReAct propio de S6, sobre FoundryChatModel
+    AGENT_FRAMEWORK = "agent_framework"  # S7: Microsoft Agent Framework conduce el turno
+
+
 class _EnvSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore")
 
@@ -82,6 +87,7 @@ class Settings(_EnvSettings):
     max_turns: int = Field(10, ge=1)
     knowledge_base: KnowledgeBaseKind = KnowledgeBaseKind.LOCAL
     judge: JudgeKind = JudgeKind.LOCAL
+    agent_runtime: AgentRuntimeKind = AgentRuntimeKind.REACT
     foundry: FoundrySettings = Field(default_factory=FoundrySettings)
     ingest: IngestSettings = Field(default_factory=IngestSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)

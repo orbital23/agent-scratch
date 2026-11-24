@@ -99,9 +99,11 @@ class ToolCallingChatModel(FakeChatModel):
         super().__init__()
         self.tool_calls, self.rounds = list(calls), rounds
         self.received: list[list[Message]] = []
+        self.offered: list[list[ToolDefinition]] = []  # las tools que el agente le ofreció en cada llamada
 
     def complete(self, messages: list[Message], tools: list[ToolDefinition] = ()) -> ModelResult | ToolRequest:
         self.received.append(list(messages))
+        self.offered.append(list(tools))
         if len(self.received) <= self.rounds:
             return ToolRequest(calls=self.tool_calls, usage=Usage(models=["fake"], llm_calls=1, prompt_tokens=20, completion_tokens=6))
         reply = AgentReply(intent=Intent.DATA_QUERY, answer=f"[fake] la tool dijo: {messages[-1]['content']}", sources=[])
@@ -129,6 +131,18 @@ class FakeTools:
         self.executed.append(call.name)
         return ToolResult(call=call, status=ToolStatus.OK, content='{"result": [{"id": "FEE-4002", "refundable": true}]}')
 
+class FlakyTools(FakeTools):
+    """Falla por conexión las primeras `failures` llamadas, como un MCP que se está reiniciando."""
+
+    def __init__(self, failures: int) -> None:
+        super().__init__()
+        self.failures, self.attempts = failures, 0
+
+    def call(self, call: ToolCall) -> ToolResult:
+        self.attempts += 1
+        if self.attempts <= self.failures:
+            raise AgentError(ErrorKind.UPSTREAM, "no se pudo llamar al MCP: ConnectError")
+        return super().call(call)
 
 class FakeEmbedder:
     DIM = 8
