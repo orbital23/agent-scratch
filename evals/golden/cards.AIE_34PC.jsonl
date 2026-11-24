@@ -1,0 +1,1 @@
+{"id": "cards-AIE34PC", "type": "answerable", "history": [], "question": "¿Cuales son los beneficios de la tarjeta clasica?", "expected_intent": "product_question", "expected_sources": ["classic-card-sheet.pdf"], "forbidden_sources": [], "key_facts": ["Programa de recompensas"]}

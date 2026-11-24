@@ -1,20 +1,100 @@
 """Puertos: lo que el dominio necesita del mundo exterior. Las implementaciones viven en infrastructure."""
 
+from collections.abc import Callable, Iterator
 from typing import Protocol
 
-from agent.domain.models import Message
+from agent.domain.evaluation import Verdict
+from agent.domain.knowledge import Chunk, Citation, SearchHit
+from agent.domain.models import (
+    Message,
+    ModelEvent,
+    ModelResult,
+    RewriteResult,
+    RuntimeEvent,
+    ToolCall,
+    ToolDefinition,
+    ToolRequest,
+    ToolResult,
+)
 
 
 class ChatModel(Protocol):
     """Modelo de lenguaje. T1: Foundry directo; T3: Microsoft Agent Framework."""
 
-    # TODO S1: tipar el retorno: AgentReply
-    # TODO S2: ModelResult (respuesta tipada + consumo de la llamada)
-    def complete(self, messages: list[Message]): ...
+    def complete(self, messages: list[Message], tools: list[ToolDefinition]) -> ModelResult | ToolRequest:
+        """La respuesta tipada, o el pedido de tools si el modelo necesita datos antes de responder (S6)."""
+        ...
+
+    def stream(self, messages: list[Message], tools: list[ToolDefinition]) -> Iterator[ModelEvent]:
+        """Igual que complete, pero entrega la respuesta mientras se escribe. El último evento es ModelResult o ToolRequest."""
+        ...
+
+
+class AgentRuntime(Protocol):
+    """Quién conduce el turno: llama al modelo, ejecuta cada tool que pide con run_tool y sigue hasta que responde.
+
+    S6: el ciclo ReAct propio sobre ChatModel. S7: Microsoft Agent Framework. Las reglas no viajan al runtime: qué tools
+    ve el modelo, cuántas vueltas puede dar y qué pasa con una acción sensible las decide ChatService.
+    """
+
+    def run(
+        self,
+        messages: list[Message],
+        tools: list[ToolDefinition],
+        run_tool: Callable[[ToolCall], ToolResult],
+        max_rounds: int,
+    ) -> Iterator[RuntimeEvent]:
+        """Si el modelo pide tools max_rounds veces seguidas sin responder, AgentError INVALID_OUTPUT."""
+        ...
+
+
+class Tools(Protocol):
+    """Las tools del dominio. S6: un servidor MCP, el mock local o el compartido."""
+
+    def definitions(self) -> list[ToolDefinition]: ...
+
+    def call(self, call: ToolCall) -> ToolResult:
+        """Ejecuta la tool. Un error de negocio vuelve como ToolStatus.ERROR: también es información para el modelo."""
+        ...
+
+
+class QueryRewriter(Protocol):
+    """Reescribe una pregunta de seguimiento para que se entienda sin el historial. S4: el mismo modelo de chat."""
+
+    def rewrite(self, messages: list[Message]) -> RewriteResult: ...
 
 
 class ConversationStore(Protocol):
-    """Historial por sesión. T1: memoria; T4: Cosmos DB."""
+    """Historial por sesión y la acción sensible que espera al asesor (S8). T1: memoria; T4: Cosmos DB."""
 
     def get(self, session_id: str) -> list[Message]: ...
     def append(self, session_id: str, message: Message) -> None: ...
+    def pending(self, session_id: str) -> ToolCall | None: ...
+    def set_pending(self, session_id: str, call: ToolCall | None) -> None:
+        """Guarda la acción que espera al asesor; None la quita. Hay a lo más una por sesión."""
+        ...
+
+class Embedder(Protocol):
+    """Texto → vector. T2: Foundry text-embedding-3-small."""
+
+    def embed(self, texts: list[str]) -> list[list[float]]: ...
+
+
+class KnowledgeBase(Protocol):
+    """Índice de conocimiento. Qdrant en modo local o Azure AI Search, según KNOWLEDGE_BASE."""
+
+    def publish(self, chunks: list[Chunk]) -> None:
+        """Reemplaza todos los chunks de cada fuente publicada."""
+        ...
+
+    def count(self) -> int: ...
+
+    def search(self, text: str, vector: list[float], top_k: int) -> list[SearchHit]:
+        """Los top_k chunks vigentes más relevantes para la pregunta, del más al menos relevante."""
+        ...
+
+
+class Judge(Protocol):
+    """Califica una respuesta contra los fragmentos que vio el modelo. S5: G-Eval o decision-1, según JUDGE."""
+
+    def evaluate(self, question: str, fragments: list[SearchHit], answer: str, cited: list[Citation]) -> Verdict: ...

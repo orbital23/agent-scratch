@@ -4,12 +4,26 @@ version = "0.1.0"
 description = "Agente conversacional bancario en capas domain / application / infrastructure"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "agent-framework-core==1.24.0",
+    "agent-framework-openai==1.18.0",
+    "azure-cosmos>=4.9",
     "azure-identity>=1.26.0",
+    "azure-search-documents>=12.0.0",
     "fastapi>=0.115",
+    "fastmcp>=4.1,<5",
+    "jiter>=0.17.0",
+    "jsonschema>=4.26",
     "openai>=3.35.1",
     "pydantic-settings>=2.16.0",
+    "pypdf>=6.21",
+    "python-docx>=1.2",
+    "qdrant-client>=1.20.0",
     "uvicorn>=0.30",
 ]
+
+[project.scripts]
+ingest = "agent.infrastructure.ingestion.cli:main"
+eval = "agent.infrastructure.evaluation.cli:main"
 
 [dependency-groups]
 dev = [
@@ -19,7 +33,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["tests"]
+pythonpath = ["tests", "dev/mcp"]
 
 [build-system]
 requires = ["uv_build>=0.8,<0.12"]
