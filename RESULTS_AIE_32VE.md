@@ -127,3 +127,31 @@ No, esperaba que el asesor aprobara la solicitud.
 ### Conclusión
 
 Funciono correctamente con agent_framework y react, funciono de acuerdo a lo planteado en el laboratorio
+
+## Sesión 9 — Despliegue en Azure
+
+Equipo: `team-02`. Dominio: `cards`.
+
+| Comprobación | Resultado |
+|---|---|
+| Tests en el contenedor (paso 3) | 144 passed in 22.89s |
+| Acción aprobada después de reiniciar `uvicorn` (paso 2, Cosmos DB) | POST /chat/actions falló: not_found: no hay una acción pendiente call-54db700e en esta sesión / Error 404 (not_found): no hay una acción pendiente call-54db700e en esta sesión |
+| Imagen desplegada (`team-02/agent:<sha>`) | team-02/agent:1bf5cd2d959c54a1d6d87b785a140d9c954bf1c7 |
+| Revisión activa y duración del job `deploy` | revision: ca-agent-chat-02--0000002, duración: 2m 35s2.21 min |
+| `/health` del agente desplegado | Agente: https://ca-agent-chat-02.icybush-2ea2dfc1.eastus2.azurecontainerapps.io |
+| Respuesta con `Fuentes:` contra Azure (y su tiempo en ms) | Fuentes: [1] credit-line-increase.md · Aumento de línea de crédito > Requisitos.  [2] credit-line-increase.md · Aumento de línea de crédito > Cómo se solicita (primer texto en 33000 ms. respuesta completa en 34359 ms, 2930 tokens de entrada, 1696 de salida) |
+| Acción aprobada contra Azure, con su `resultado:` | Asesor: ¿apruebas request_credit_line_increase(card_id=CRD-2001, requested_limit=4000)? [s/n]: s. Agente [sensitive_action]: La solicitud de aumento a S/4,000 para la tarjeta terminada en 2001 quedó registrada para que el banco la procese; no se aplicó todavía. |
+
+### Qué pone Azure y qué pone la imagen
+
+- Azure (ca-agent-chat-02): AZURE_OPENAI_ENDPOINT, FOUNDRY_PROJECT_ENDPOINT, AZURE_CLIENT_ID, TEAM_ID, MCP_SCOPE, KEY_VAULT_URI APPLICATIONINSIGHTS_CONNECTION_STRING, COSMOS_ENDPOINT, COSMOS_DATABASE, COSMOS_CONTAINER, SEARCH_ENDPOINT, SEARCH_INDEX, MCP_URL.
+- La imagen (ENV del Dokerfile): DOMAIN, FOUNDRY_AUTH_PROVIDER=entra_id, KNOWLEDGE_BASE=azure_search, AGENT_RUNTIME=agent_framework, PATH y PYTHONUNBUFFERED.
+
+### Problemas que encontraste y cómo los resolviste
+
+No puede ejecutar 'git fetch upstream', me ayude con el capitan, luego subio sus cambios y con los que pude trabajar.
+El problema recurrente en el que la api falla en los primeros intentos porque no recien se esta levantando la app.
+
+### Conclusión
+
+Se llego a desplegar en Azure Container Apps (ca-agent-chat-02--0000002) se llego a desplegar sin secretos en el repositorio ni API keys, se llego a realizar las pruebas respectivas al agente, preguntas y respuestas ademas con actuar del asesor.

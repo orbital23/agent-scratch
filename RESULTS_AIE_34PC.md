@@ -142,3 +142,38 @@ No. Con los dos runtimes, get_credit_line siempre apareció primero como NO SE E
 ### Conclusión
 
 La aprobación humana vive en _run y resolve, no en el framework: funcionó igual con agent_framework y react, se tomo el action_id de cada uno, y esto sirvió para decidir por POST /chat/actions. Después de aprobar, el modelo contó solo lo que dijo el resultado ("quedó para que el banco la procese; no está aplicada aún"), luego el asesor reviso cada caso para aprobar o rechazar segun corresponda.
+
+
+## Sesión 9 — Despliegue en Azure
+
+Equipo: `team-02`. Dominio: `cards`.
+
+| Comprobación | Resultado |
+|---|---|
+| Tests en el contenedor (paso 3) | Correcto: 144 pasaron y 5 se omitieron en el job test de GitHub Actions. Corresponden al commit desplegado, no necesariamente a los cambios locales posteriores. |
+| Acción aprobada después de reiniciar `uvicorn` (paso 2, Cosmos DB) | Pendiente de verificar. Hay pruebas unitarias con un contenedor falso, pero no evidencia de una aprobación real después de reiniciar el servidor con Cosmos DB. |
+| Imagen desplegada (`team-NN/agent:<sha>`) | acrworkshopjsu3.azurecr.io/team-02/agent:897225ac1392eb2ccfc0457852897f8fc211ae65 |
+| Revisión activa y duración del job `deploy` | ca-agent-chat-02--0000004: activa, saludable y con el 100 % del tráfico. El job deploy terminó correctamente en 2m 21s |
+| `/health` del agente desplegado | Correcto: respondió ok con autenticación de Entra ID. |
+| Respuesta con `Fuentes:` contra Azure (y su tiempo en ms) | Correcto: ante la pregunta sobre incremento de linea de credito, citó classic-card-sheet.pdf y credit-line-increase.md. Respuesta completa: 6301 ms; primer texto: 6284 ms. |
+| Acción aprobada contra Azure, con su `resultado:` | Pendiente de verificar. No se ejecutó ni aprobó una acción sensible para esta comprobación, por lo que no hay un resultado: verificable. |
+
+### Qué pone Azure y qué pone la imagen
+
+Azure / Terraform: nombres observados en la configuración de la Container App: APPLICATIONINSIGHTS_CONNECTION_STRING, AZURE_CLIENT_ID, AZURE_OPENAI_ENDPOINT, COSMOS_CONTAINER, COSMOS_DATABASE, COSMOS_ENDPOINT, FOUNDRY_PROJECT_ENDPOINT, KEY_VAULT_URI, MCP_SCOPE, MCP_URL, SEARCH_ENDPOINT, SEARCH_INDEX y TEAM_ID.
+
+Imagen: devops/Dockerfile define PATH, PYTHONUNBUFFERED, DOMAIN, FOUNDRY_AUTH_PROVIDER, KNOWLEDGE_BASE y AGENT_RUNTIME. Al arrancar, también prepara FOUNDRY_ENDPOINT a partir de AZURE_OPENAI_ENDPOINT si es necesario. El workflow entrega DOMAIN durante la construcción. Las variables de la Container App pueden sobrescribir las de la imagen.
+
+### Problemas que encontraste y cómo los resolviste
+
+Autenticación del agente: Los endpoints /health y /chat/stream devolvían respuestas 401 (Unauthorized) cuando se invocaban sin credenciales. Se confirmó que el cliente utiliza DefaultAzureCredential con el scope configurado correctamente y una sesión autenticada mediante az login. Tras realizar la validación con autenticación, la respuesta fue satisfactoria.
+
+Error TLS al consultar registros mediante Azure CLI: La investigación determinó que el certificado presentado por el servicio de logs no era reconocido por el almacén de certificados utilizado por Azure CLI en la estación corporativa. Como mitigación, se configuró REQUESTS_CA_BUNDLE para emplear un paquete de certificados que combina las autoridades de certificación de Azure CLI con las raíces de confianza de Windows, manteniendo habilitada en todo momento la validación TLS.
+
+Acceso directo a Cosmos DB: La consulta produjo un error 403 (Forbidden) debido a la ausencia del permiso readMetadata. Se verificó que los permisos de acceso a la infraestructura no otorgan automáticamente acceso al plano de datos. Queda pendiente que una identidad con los privilegios adecuados asigne los roles de datos y metadatos necesarios en el alcance correspondiente.
+
+Servicio bancario MCP: En una prueba anterior, la operación get_cards devolvió un error indicando que el servicio bancario no respondía. Hasta el momento no se dispone de evidencia que confirme la resolución de esta incidencia ni la recuperación efectiva del servicio.
+
+### Conclusión
+
+El pipeline completó correctamente la construcción y publicación de la imagen del equipo, y la revisión desplegada respondió utilizando fuentes del dominio de fraude. No obstante, permanecen pendientes las pruebas de aprobación tras el reinicio del servicio y la validación en Azure, así como la verificación de los permisos de Cosmos DB y del servicio MCP. Hasta que estas actividades se ejecuten y sus resultados sean validados, no puede darse por confirmado el correcto funcionamiento de dichos componentes.
