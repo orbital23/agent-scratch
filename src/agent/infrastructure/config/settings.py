@@ -98,6 +98,8 @@ class Settings(_EnvSettings):
     knowledge_base: KnowledgeBaseKind = KnowledgeBaseKind.LOCAL
     judge: JudgeKind = JudgeKind.LOCAL
     agent_runtime: AgentRuntimeKind = AgentRuntimeKind.REACT
+    # S10: el App Insights del equipo (Terraform la pone en la Container App). Vacía: sin telemetría
+    applicationinsights_connection_string: str = ""
     foundry: FoundrySettings = Field(default_factory=FoundrySettings)
     ingest: IngestSettings = Field(default_factory=IngestSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)

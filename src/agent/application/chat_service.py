@@ -1,11 +1,13 @@
 import json
 import logging
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
 import jsonschema
+from opentelemetry import trace
+from opentelemetry.trace import Span, Status, StatusCode
 
 from agent.application.react_runtime import ReactRuntime
 from agent.domain.errors import AgentError, ErrorKind
@@ -26,6 +28,8 @@ from agent.domain.models import (
 from agent.domain.ports import AgentRuntime, ChatModel, ConversationStore, Embedder, KnowledgeBase, QueryRewriter, Tools
 
 log = logging.getLogger(__name__)
+# S10: la API de OpenTelemetry es neutral (no sabe de Azure). Sin un exportador configurado, los spans no hacen nada.
+tracer = trace.get_tracer(__name__)
 
 MAX_TOOL_ROUNDS = 5  # criterio de terminación sin skill: sin esto, un modelo confundido pide tools para siempre
 TOOL_MEMORY_CHARS = 600  # cuánto de cada resultado se recuerda en los turnos siguientes
@@ -113,18 +117,42 @@ class ChatService:
 
         Reescribir y buscar ocurren aquí mismo, antes de devolver los eventos: si fallan, el AgentError sale de inmediato
         y la API todavía puede responder con su código HTTP (502, 504, 429).
+
+        S10: el turno entero es un span (chat.turn), hijo del pedido HTTP: lo que tardó, lo que gastó y si falló, aunque
+        falle a mitad del streaming. No se hace current entre un evento y otro: cada evento puede salir desde otro hilo.
         """
-        prepared = self._prepare(session_id, message)
-        return self._answer(session_id, prepared, self.tool_definitions, self.max_tool_rounds)
+        span = tracer.start_span("chat.turn", attributes={"session.id": session_id})
+        try:
+            with trace.use_span(span, record_exception=False, set_status_on_exception=False):
+                prepared = self._prepare(session_id, message)  # la búsqueda queda dentro del turno
+        except Exception as error:
+            _failed(span, error)
+            span.end()
+            raise
+        return _traced(span, self._answer(session_id, prepared, self.tool_definitions, self.max_tool_rounds, span))
 
     def resolve(self, session_id: str, action_id: str, decision: Decision) -> AgentTurn:
         """S8: el asesor aprueba o rechaza la acción sensible pendiente; el modelo le cuenta al cliente qué pasó."""
+        attributes = {"session.id": session_id, "agent.decision": decision.value}
+        with tracer.start_as_current_span(  # S10: la decisión es su propio span, como un turno
+            "chat.decision", attributes=attributes, record_exception=False, set_status_on_exception=False
+        ) as span:
+            try:
+                turn = self._decide(session_id, action_id, decision, span)
+            except Exception as error:
+                _failed(span, error)
+                raise
+            _record(span, turn)
+            return turn
+
+    def _decide(self, session_id: str, action_id: str, decision: Decision, span: Span) -> AgentTurn:
         call = self.store.pending(session_id)
         if call is None or call.id != action_id:
             raise AgentError(ErrorKind.NOT_FOUND, f"no hay una acción pendiente {action_id} en esta sesión")
         self.store.set_pending(session_id, None)  # checkpoint: se decide una sola vez, aunque el pedido llegue dos veces
         if decision is Decision.APPROVE:
-            result = self._call(call, retries=0, unavailable=UNCONFIRMED)  # no se reintenta sola: podría hacerse dos veces
+            # no se reintenta sola: podría hacerse dos veces
+            result = _traced_tool(call, span, lambda: self._call(call, retries=0, unavailable=UNCONFIRMED))
         else:
             result = ToolResult(call=call, status=ToolStatus.REJECTED, content=REJECTED)
         # checkpoint: lo que pasó en el banco queda en la memoria antes de llamar al modelo, aunque el modelo falle después
@@ -134,7 +162,7 @@ class ChatService:
         recent = self.store.get(session_id)[-self.max_turns * 2 :]
         decided: Message = {"role": "system", "content": DECISION_HEADER}
         prepared = PreparedTurn(user=None, messages=[*self._system(), *recent, decided], hits=[], rewrite_usage=Usage())
-        *_, turn = self._answer(session_id, prepared, tools=[], max_rounds=1)  # sin tools: solo cuenta lo que pasó
+        *_, turn = self._answer(session_id, prepared, tools=[], max_rounds=1, span=span)  # sin tools: solo cuenta lo que pasó
         return turn.model_copy(update={"tools": [result]})
 
     def _system(self) -> list[Message]:
@@ -160,14 +188,14 @@ class ChatService:
         return PreparedTurn(user=user, messages=messages, hits=hits, rewrite_usage=rewrite_usage)
 
     def _answer(
-        self, session_id: str, prepared: PreparedTurn, tools: list[ToolDefinition], max_rounds: int
+        self, session_id: str, prepared: PreparedTurn, tools: list[ToolDefinition], max_rounds: int, span: Span
     ) -> Iterator[TurnEvent]:
         used: list[ToolResult] = []
         waiting = self.store.pending(session_id)
 
         def run_tool(call: ToolCall) -> ToolResult:
             nonlocal waiting
-            result = self._run(call, tools, waiting)
+            result = _traced_tool(call, span, lambda: self._run(call, tools, waiting))
             if result.status is ToolStatus.PENDING_APPROVAL:
                 waiting = call
             return result
@@ -234,6 +262,59 @@ class ChatService:
             pending_action=pending,
             hits=prepared.hits,
         )
+
+
+def _traced(span: Span, events: Iterator[TurnEvent]) -> Iterator[TurnEvent]:
+    """Cierra el span del turno cuando el turno termina, falla o el cliente corta el streaming."""
+    try:
+        for event in events:
+            if isinstance(event, AgentTurn):
+                _record(span, event)
+            yield event
+    except Exception as error:
+        _failed(span, error)
+        raise
+    finally:
+        span.end()
+
+
+def _traced_tool(call: ToolCall, parent: Span, run: Callable[[], ToolResult]) -> ToolResult:
+    """Un span por tool, hijo del turno aunque el runtime la llame desde otro hilo (Agent Framework usa su propio loop).
+
+    Sin argumentos ni resultado en el span: pueden traer datos del cliente.
+    """
+    with tracer.start_as_current_span(f"tool {call.name}", context=trace.set_span_in_context(parent)) as span:
+        result = run()
+        span.set_attributes(
+            {"gen_ai.tool.name": call.name, "gen_ai.tool.call.id": call.id, "agent.tool.status": result.status.value}
+        )
+        if result.status is ToolStatus.ERROR:
+            span.set_status(Status(StatusCode.ERROR, "la tool respondió con error"))
+        return result
+
+
+def _record(span: Span, turn: AgentTurn) -> None:
+    """Lo que se mira de cada turno en App Insights. Sin el texto de la conversación: solo medidas e identificadores."""
+    span.set_attributes(
+        {
+            "agent.intent": turn.reply.intent.value,
+            "gen_ai.usage.input_tokens": turn.usage.prompt_tokens,
+            "gen_ai.usage.output_tokens": turn.usage.completion_tokens,
+            "agent.llm_calls": turn.usage.llm_calls,
+            "agent.latency_ms": turn.usage.latency_ms,
+            "agent.models": ",".join(turn.usage.models),
+            "agent.tools": " ".join(f"{tool.call.name}:{tool.status.value}" for tool in turn.tools),
+            "agent.citations": len(turn.citations),
+            "agent.pending_action": turn.pending_action.name if turn.pending_action else "",
+        }
+    )
+    span.set_status(StatusCode.OK)
+
+
+def _failed(span: Span, error: Exception) -> None:
+    span.record_exception(error)
+    span.set_status(Status(StatusCode.ERROR, str(error)[:200]))
+    span.set_attribute("agent.error", error.kind.value if isinstance(error, AgentError) else type(error).__name__)
 
 
 def _invalid_arguments(arguments: dict[str, Any], schema: dict[str, Any]) -> str | None:

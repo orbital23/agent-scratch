@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import json
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -60,7 +61,8 @@ class McpTools:
         # ponytail: una conexión por llamada; si un turno usa muchas tools, mantener una sesión abierta
         try:
             with ThreadPoolExecutor(max_workers=1) as thread:
-                return thread.submit(asyncio.run, run()).result()
+                # S10: el hilo hereda el contexto (la traza del turno): sin esto, las llamadas HTTP al MCP quedan sueltas
+                return thread.submit(contextvars.copy_context().run, asyncio.run, run()).result()
         except ToolError:
             raise
         except Exception as error:  # conexión o timeout: el MCP no está disponible

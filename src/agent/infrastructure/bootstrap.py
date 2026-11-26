@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from azure.cosmos import CosmosClient
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+from azure.monitor.opentelemetry import configure_azure_monitor
 from fastapi import FastAPI
 
 from agent.application.chat_service import ChatService
@@ -124,6 +125,20 @@ def build_store(cosmos: CosmosSettings) -> ConversationStore:
     return CosmosConversationStore(container)
 
 
+def configure_telemetry(settings: Settings) -> bool:
+    """S10: trazas y logs del agente al App Insights del equipo. Va antes de crear la app: así se instrumenta FastAPI."""
+    if not settings.applicationinsights_connection_string:
+        log.info("Telemetría: apagada (sin APPLICATIONINSIGHTS_CONNECTION_STRING)")
+        return False
+    configure_azure_monitor(
+        connection_string=settings.applicationinsights_connection_string,
+        credential=DefaultAzureCredential(),  # la identidad del equipo tiene Monitoring Metrics Publisher: sin la llave
+        logger_name="agent",  # solo los logs del agente (la trayectoria de cada turno), no los de cada librería
+    )
+    log.info("Telemetría: App Insights del equipo")
+    return True
+
+
 def _mcp_hint(mcp: McpSettings) -> str:
     """Qué revisar cuando el MCP no responde. El cliente MCP no expone el código HTTP: se deduce de la configuración."""
     if urlparse(mcp.url).hostname in ("127.0.0.1", "localhost"):
@@ -192,6 +207,8 @@ def create_app(
     tools: Tools | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
+    if chat_model is None:  # tests: nunca telemetría
+        configure_telemetry(settings)
     chat_service = build_chat_service(settings, chat_model, embedder, knowledge_base, tools)
     app = FastAPI(title=f"agent-{settings.domain}")
     app.include_router(build_router(chat_service))
