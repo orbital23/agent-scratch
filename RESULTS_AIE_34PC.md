@@ -177,3 +177,36 @@ Servicio bancario MCP: En una prueba anterior, la operación get_cards devolvió
 ### Conclusión
 
 El pipeline completó correctamente la construcción y publicación de la imagen del equipo, y la revisión desplegada respondió utilizando fuentes del dominio de fraude. No obstante, permanecen pendientes las pruebas de aprobación tras el reinicio del servicio y la validación en Azure, así como la verificación de los permisos de Cosmos DB y del servicio MCP. Hasta que estas actividades se ejecuten y sus resultados sean validados, no puede darse por confirmado el correcto funcionamiento de dichos componentes.
+
+
+## Sesión 10 — Trazas por turno y dashboard
+
+Equipo: `team-02`. App Insights: `appi-team-02`. Los cuatro casos contra el agente desplegado (paso 8).
+
+| Caso | `operation_Id` | Latencia (ms) | Tokens de entrada | Tokens de salida | Tools | Error | Observaciones |
+|---|---|---|---|---|---|---|---|
+| Saludo | c866ad4f9eb20513375f6262e4ba6fcd | 13.452 | No desplosado | No desglosado | - | No | Turno exitoso, intención greeting; 1.766 tokens totales. |
+| Consulta con retrieval | 4f0f97c3d53010ed36636e8c03417cb | 14.856 | No desglosado | No desglosado | - | No | Turno exitoso, intención product_question; 3.784 tokens totales. |
+| Llamada a tool | 09bb9a6c9347341ac807a5177d3131bb | 32.662 | No desglosado | No desglosado | get_cards: error | Fallo de tool | 4.435 tokens totales. El turno aparece exitoso, pero el span de get_cards falló y duró 10.715 ms. |
+| Error controlado | 7c7f8cc22c2bfd9abb8dc052bfd21859 | 28.692_| No consta | No consta | - | upstream |Turno fallido y sin intención; la captura permite localizar la operación, pero no identificar la causa raíz. |
+
+**Observaciones**
+
+La captura no proporciona el desglose individual de tokens de entrada y salida. También se observó una llamada exitosa a get_cards de 728 ms, asociada al turno 4f0f97c3d53010ed36636e8c03417cb.
+
+### Lo que dice el workbook
+
+| Panel | Lo que viste |
+|---|---|
+| Latencia p95 por intención | sensitive_action: 35.316 ms (p50: 28.612 ms); sin intención: 28.882 ms; greeting: 15.924 ms (p50: 13.831 ms); product_question: 15.723 ms. |
+| Tokens por turno | Promedio: 3.152; p95: 5.732. Entrada en caché: 70,8 %; salida en razonamiento: 69,7 %. El promedio de llamadas al modelo es 1,65. El costo promedio figura como NaN y el costo total como 0; la captura no muestra costos calculados. |
+| Dónde se va el tiempo de un turno | El mayor p95 corresponde a sensitive_action (35.329 ms). El span fallido de get_cards duró 10.735 ms (p50 de la tool: 1.124 ms) |
+| Tools con error | get_cards: 3 llamadas, 1 fallo (33,3 %), p50 1.124 ms y p95 10.745 ms. Espera de asesor: 0; aprobaciones: 0; rechazos: 0. El resumen muestra 8 turnos, 1 turno con error y 1 tool fallida. |
+
+### ¿Qué optimizarías primero y por qué?
+
+Me centraría primero en get_cards por su tasa de errores (1/3 llamadas) y la latencia del span fallido (10.715 ms), validando dependencias, manejo de errores, timeouts y reintentos. A continuación, revisaría la p95 de sensitive_action (35.216 ms). El análisis de costes quedaría pendiente hasta disponer de métricas fiables en el workbook.
+
+### Conclusión
+
+El agente procesó ocho turnos en el periodo analizado. Los principales hallazgos son el fallo de get_cards (1 de 3 llamadas) y la alta latencia de sensitive_action. No se observan aprobaciones de acciones. El error upstream puede localizarse mediante el operation_Id, pero la información disponible no permite confirmar su gestión ni su causa raíz. El análisis de tokens por operación y costes requiere el detalle de las trazas y una medición de costes disponible.
