@@ -89,3 +89,33 @@ Equipo: `team-02`. Dominio: `cards`.
 ### Conclusión
 
 El agente del equipo (`team-02`, dominio `cards`) quedó desplegado en Azure Container Apps (`ca-agent-chat-02--0000002`) usando identidad administrada (`id-team-02`) sin secretos en el repositorio ni API keys. Tanto la consulta RAG sobre `idx-team-02` como el flujo HITL con `request_credit_line_increase` en el MCP compartido y la persistencia en Cosmos DB (`workshop/team-02`) funcionaron de extremo a extremo.
+
+## Sesión 10 — Trazas por turno y dashboard
+
+Equipo: `team-02`. App Insights: `appi-team-02`. Los cuatro casos contra el agente desplegado (paso 8).
+
+| Caso | `operation_Id` | Latencia (ms) | Tokens (entrada / salida) | Tools | Error |
+|---|---|---|---|---|---|
+| Saludo | `a8fc815522bc1cf2ab4a7ab1495a54ed` | `4160` | `1374 / 175` | `—` | `—` |
+| Consulta con retrieval | `6e227ddb0b0367230c21ea6ac26a9c28` | `3541` | `1413 / 329` | `—` | `—` |
+| Llamada a tool | `f5cc6cfd3fd1b94000a613182bccbff1` | `9876` | `5399 / 815` | `get_cards:ok get_credit_line:ok` | `—` |
+| Error controlado | `9c14c1b9cab7be23aae5e2de024c2deb` | `6` | `—` | `—` | `not_found` |
+
+*(Nota: en un intento previo en frío del caso con tool, `operation_Id` `502c39d4fd918b4bd34b9a775b5737fa`, `get_cards` devolvió error por arranque en frío del banco detrás del MCP: `15518 ms`, `3474 / 422`, `get_cards:error`).*
+
+### Lo que dice el workbook
+
+| Panel | Lo que viste |
+|---|---|
+| Latencia p95 por intención | `greeting`: `13775 ms` (`p50`: `8572 ms`); `data_query`: `15518 ms` (`p50`: `9876 ms`); `product_question`: `16018 ms` (`p50`: `3541 ms`); `sensitive_action`: `33094 ms` (`p50`: `30026 ms`) |
+| Tokens por turno | Promedios: `greeting` `1410 / 241` (`1.2` llamadas), `product_question` `1413 / 378` (`1` llamada), `data_query` `4437 / 619` (`2.5` llamadas), `sensitive_action` `5139 / 2327` (`3.5` llamadas) |
+| Dónde se va el tiempo de un turno | Mayor acumulado en `MCP compartido` (`96638 ms`, `p95`: `23663 ms` por arranque en frío; `p50`: `197 ms`), seguido por `Foundry (OpenAI)` (`68523 ms`, `p50`: `1736 ms`, `p95`: `8556 ms`) y `Cosmos DB` (`57329 ms` en `142` ops) |
+| Tools con error | `get_cards`: `1` error de `3` llamadas (`p95`: `10095 ms`, por frío del banco); `get_credit_line` (`2/2 ok`) y `request_credit_line_increase` (`1/1 pending_approval`) sin errores |
+
+### ¿Qué optimizarías primero y por qué?
+
+Primero optimizaría las llamadas a **Foundry** en turnos con tools (`data_query` y `sensitive_action`), donde se realizan de `2.5` a `3.5` llamadas LLM por turno y se superan los `5 000` tokens de entrada: aplicar **prompt caching** (prefijos estables > 1 024 tokens) y usar un modelo más ligero para `QueryRewriter` reduciría tanto costo como latencia en el camino feliz (cuando el MCP responde en `p50` de `197 ms`). En segundo lugar, mitigaría los arranques en frío del backend bancario detrás del MCP (que disparan el `p95` del MCP a `23.6 s` y causaron el error de `get_cards`).
+
+### Conclusión
+
+La instrumentación con OpenTelemetry y `azure-monitor-opentelemetry` en `ca-agent-chat-02--0000003` permitió observar en `appi-team-02` cada turno (`chat.turn`), decisión (`chat.decision`), tool hija y llamada HTTP a Foundry, AI Search, Cosmos DB y MCP sin exponer mensajes ni datos de clientes. Esto hace visibles fallos ocultos por la resiliencia (como el arranque en frío de `get_cards`) y permite priorizar optimizaciones con datos reales de `p95` y tokens.
