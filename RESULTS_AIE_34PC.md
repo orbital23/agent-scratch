@@ -151,7 +151,7 @@ Equipo: `team-02`. Dominio: `cards`.
 | Comprobación | Resultado |
 |---|---|
 | Tests en el contenedor (paso 3) | Correcto: 144 pasaron y 5 se omitieron en el job test de GitHub Actions. Corresponden al commit desplegado, no necesariamente a los cambios locales posteriores. |
-| Acción aprobada después de reiniciar `uvicorn` (paso 2, Cosmos DB) | Pendiente de verificar. Hay pruebas unitarias con un contenedor falso, pero no evidencia de una aprobación real después de reiniciar el servidor con Cosmos DB. |
+| Acción aprobada después de reiniciar `uvicorn` (paso 2, Cosmos DB) | Si, se recupera la sesión de la conversación, se validó mediante la consulta a cosmos: {'id': '643d7bf8-acbe-4e4c-9e43-c60141520fr7', 'messages': 8, 'pending': None} |
 | Imagen desplegada (`team-NN/agent:<sha>`) | acrworkshopjsu3.azurecr.io/team-02/agent:897225ac1392eb2ccfc0457852897f8fc211ae65 |
 | Revisión activa y duración del job `deploy` | ca-agent-chat-02--0000004: activa, saludable y con el 100 % del tráfico. El job deploy terminó correctamente en 2m 21s |
 | `/health` del agente desplegado | Correcto: respondió ok con autenticación de Entra ID. |
