@@ -135,7 +135,7 @@ Equipo: `team-02`. Dominio: `cards`.
 | Comprobación | Resultado |
 |---|---|
 | Tests en el contenedor (paso 3) | 144 passed in 22.89s |
-| Acción aprobada después de reiniciar `uvicorn` (paso 2, Cosmos DB) | POST /chat/actions falló: not_found: no hay una acción pendiente call-54db700e en esta sesión / Error 404 (not_found): no hay una acción pendiente call-54db700e en esta sesión |
+| Acción aprobada después de reiniciar `uvicorn` (paso 2, Cosmos DB) | {"id": "CLI-9001", "card_id": "CRD-2001", "requested_limit": 4000.0, "status": "registered"} |
 | Imagen desplegada (`team-02/agent:<sha>`) | team-02/agent:1bf5cd2d959c54a1d6d87b785a140d9c954bf1c7 |
 | Revisión activa y duración del job `deploy` | revision: ca-agent-chat-02--0000002, duración: 2m 35s2.21 min |
 | `/health` del agente desplegado | Agente: https://ca-agent-chat-02.icybush-2ea2dfc1.eastus2.azurecontainerapps.io |
