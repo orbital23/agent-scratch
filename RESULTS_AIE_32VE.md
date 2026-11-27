@@ -155,3 +155,34 @@ El problema recurrente en el que la api falla en los primeros intentos porque no
 ### Conclusión
 
 Se llego a desplegar en Azure Container Apps (ca-agent-chat-02--0000002) se llego a desplegar sin secretos en el repositorio ni API keys, se llego a realizar las pruebas respectivas al agente, preguntas y respuestas ademas con actuar del asesor.
+
+## Sesión 10 — Trazas por turno y dashboard
+
+Equipo: `team-02`. App Insights: `appi-team-02`. Los cuatro casos contra el agente desplegado (paso 8).
+
+| Caso | `operation_Id` | Latencia (ms) | Tokens de entrada | Tokens de salida | Tools | Error | Observaciones |
+|---|---|---|---|---|---|---|---|
+| Saludo | cfbbc6d9954f8ba2fe1b5b96e402e2ac | 8804 | 1572 | 577 | - | - | Respondio el saludo |
+| Consulta con retrieval | 300e05561aeb3943ef4088ba254ed1c2 | 6313 | 1491 | 683 | - | - | Respondio cuales son los tipos de tarjeta que ofrece |
+| Llamada a tool | 73c702a9ca2b43ff53ced3296627db54 | 17314 | 4496 | 1313 | get_cards:ok get_credit_line:ok | - | Respondio la solicitud de aumento de linea de credito |
+| Error controlado | 9c14c1b9cab7be23aae5e2de024c2deb | - | - | - | - | - | not found |
+
+En **Observaciones**, una línea: lo que llamó la atención de la traza (qué se llevó el tiempo, la dependencia que falló, si el
+error permite ubicar el turno). En **Tools**, `—` si el turno no llamó ninguna.
+
+### Lo que dice el workbook
+
+| Panel | Lo que viste |
+|---|---|
+| Latencia p95 por intención | `greeting`: `13775 ms` (`p50`: `13342 ms`); `data_query`: `15518 ms` (`p50`: `9876 ms`); `product_question`: `10521 ms` (`p50`: `3541 ms`); `sensitive_action`: `63662 ms` (`p50`: `19406 ms`) |
+| Tokens por turno | El gráfico mostró más tokens de entrada que de salida y el mayor consumo cerca de la 11:15 p. m. |
+| Dónde se va el tiempo de un turno | Foundry-chat : 83436 ms en 21 llamadas y 8981 de latencia, MCP : 80860 ms en 20 llamadas y 17294 de latencia, Cosmos DB : 16816 ms en 81 llamadas y 1226 de latencia, AI Search : 8911 ms en 11 llamadas y 1609 de latencia |
+| Tools con error | get_cards(customer_id=CUS-1001) error: {"error": "El servicio del banco no responde; intenta de nuevo en unos minutos"} |
+
+### ¿Qué optimizarías primero y por qué?
+
+Por el tiempo que se toma, para mi lo primero seria la optimizacion de las llamadas a Foundry en las tools ya que se ve ahi se toma un poco mas de tiempo de lo normal
+
+### Conclusión
+
+Se realizo las cuatro pruebas en App Insights junto con los paneles del equipo. Noté que mientras el saludo y la pregunta de tipos de tarjetas se respondieron sin activar las tools, la consulta de comisiones sí requirió su uso. Por otro lado, el fallo al invocar una acción inexistente quedó debidamente registrado, y gracias al workbook pudimos confirmar tanto un incremento en los tiempos de respuesta del modelo como errores específicos al procesar las comisiones.
